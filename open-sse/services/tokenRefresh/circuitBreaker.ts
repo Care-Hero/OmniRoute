@@ -124,12 +124,12 @@ async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<
  * @param {string} provider - Provider ID for circuit breaker tracking (optional)
  * @returns {Promise<object|null>} Token result or null if all retries fail
  */
-export async function refreshWithRetry(
-  refreshFn,
+export async function refreshWithRetry<T>(
+  refreshFn: () => Promise<T>,
   maxRetries = 3,
   log: RefreshLogger = null,
   provider = "unknown"
-) {
+): Promise<T | null> {
   // Circuit breaker check
   if (isProviderBlocked(provider)) {
     log?.warn?.("TOKEN_REFRESH", `⚡ Circuit breaker active for ${provider}, skipping refresh`);
