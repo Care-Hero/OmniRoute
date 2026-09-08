@@ -16,20 +16,12 @@
  * An id the table does not know resolves to the wildcard baseline 0.5 — the documented
  * neutral for "no evidence", never a quality claim.
  */
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import lifecycle from "../../../../config/quality/model-lifecycle.json";
 import { describe, it, expect } from "vitest";
 import { getStaticFitnessTableScore } from "../taskFitness";
 import { REGISTRY } from "../../../config/providers/index.ts";
 
 const TASK_TYPES = ["coding", "review", "planning", "analysis", "debugging", "documentation"];
-
-const lifecycle = JSON.parse(
-  readFileSync(
-    fileURLToPath(new URL("../../../../config/quality/model-lifecycle.json", import.meta.url)),
-    "utf8"
-  )
-) as { retired: Record<string, { status: string }> };
 
 const retiredIds = new Set(
   Object.entries(lifecycle.retired)

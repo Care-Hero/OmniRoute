@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     assert.equal(delivered.model, "private-model");
     assert.equal(delivered.provider, "private-provider");
     assert.ok(delivered.latencyMs >= 0);
-    assert.equal(delivered.error, "Error: Provider failed in <path> with api_key='[REDACTED]'");
+    assert.equal(delivered.error, "Error: Provider failed in <path>");
     assert.doesNotMatch(delivered.error, /sk-live-dashboard-secret|\/srv\/omniroute|\n/);
 
     const replayed = eventBus
@@ -100,14 +100,15 @@ async function main(): Promise<void> {
     assert.equal(writerDrained, true, "call-log write must drain");
     const persisted = await callLogs.getCallLogById(callLogId);
     assert.ok(persisted, "failed attempt must still be available to internal diagnostics");
-    assert.equal(persisted.error, rawDiagnostic);
+    assert.equal(persisted.error, delivered.error);
+    assert.equal(hostileError.stack, rawDiagnostic, "logging must not mutate the original diagnostic");
 
     console.log(
       RESULT_PREFIX +
         JSON.stringify({
           delivered,
           replayMatches: JSON.stringify(replayed.payload) === JSON.stringify(delivered),
-          internalRawPreserved: persisted.error === rawDiagnostic,
+          persistedErrorSanitized: persisted.error === delivered.error,
           writerDrained,
         })
     );

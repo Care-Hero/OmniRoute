@@ -630,3 +630,39 @@ test("Antigravity BYOP 422 rotation persists cooldown via setConnectionRateLimit
   assert.equal(typeof cooldowns[0]?.untilMs, "number");
   assert.equal((cooldowns[0]?.untilMs ?? 0) > Date.now(), true);
 });
+
+for (const scenario of [
+  { provider: "gemini", stream: false, probe: false, locks: 1, records: 2 },
+  { provider: "gemini", stream: false, probe: true, locks: 0, records: 0 },
+  { provider: "gemini", stream: true, probe: false, locks: 0, records: 0 },
+  { provider: "antigravity", stream: false, probe: false, locks: 0, records: 2 },
+]) {
+  test(`quota state ownership: ${JSON.stringify(scenario)}`, async () => {
+    const { runProviderExecutionPipeline } = await import(
+      "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
+    );
+    const locks: unknown[][] = [];
+    let records = 0;
+    const input = makeInput({
+      provider: scenario.provider,
+      model: "gemini-2.5-pro",
+      stream: scenario.stream,
+      policy: { allowAccountRotation: false, allowModelFallback: false },
+      state: {
+        isolateProbeFailures: () => scenario.probe,
+        recordRateLimitHeaders: () => { records++; },
+        recordRateLimitBody: () => { records++; },
+        lockModel: (...args) => { locks.push(args); },
+      },
+      send: async () => makeAttempt({ error: { message: "insufficient_quota: quota exhausted" } }, 402),
+    });
+    const result = await runProviderExecutionPipeline(input);
+    assert.equal(result.kind, "error");
+    assert.equal(records, scenario.records);
+    assert.equal(locks.length, scenario.locks);
+    if (scenario.locks) {
+      assert.deepEqual(locks[0].slice(0, 4), ["gemini", "conn-a", "gemini-2.5-pro", "quota_exhausted"]);
+      assert.ok(Number(locks[0][4]) > 0);
+    }
+  });
+}

@@ -3045,6 +3045,7 @@ test("chatCore maps upstream aborts to request-aborted errors", async () => {
   assert.equal(result.success, false);
   assert.equal(result.status, 499);
   assert.equal(result.error, "Request aborted");
+  assert.equal((await result.response.json()).error.message, "Request aborted");
 });
 test("chatCore maps raw string abort reasons to 499, not 502 (#7907)", async () => {
   // abort(reason) rejects the upstream fetch with the raw reason — often a
@@ -3066,6 +3067,7 @@ test("chatCore maps raw string abort reasons to 499, not 502 (#7907)", async () 
   assert.equal(result.success, false);
   assert.equal(result.status, 499);
   assert.equal(result.error, "Request aborted");
+  assert.equal((await result.response.json()).error.message, "Request aborted");
 });
 
 // Live incident territory (dashboard log id 1784504040241-6f8b9a): the client had
@@ -3209,7 +3211,7 @@ test("chatCore releases account semaphore slots when upstream execution throws",
   assert.equal(getAccountSemaphoreStats()[semaphoreKey], undefined);
 });
 test("chatCore locks per-model quota failures without dropping quota helper references", async () => {
-  const model = "gemini-1.5-pro";
+  const model = "gemini-2.5-pro";
   const connection = await providersDb.createProviderConnection({
     provider: "gemini",
     authType: "apikey",

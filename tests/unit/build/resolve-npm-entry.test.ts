@@ -69,3 +69,13 @@ test("live environment: the real node install can resolve npm-cli.js (POSIX regr
     `real install must resolve npm-cli.js (execPath=${process.execPath}) — the #8858 resolver returned null on POSIX`
   );
 });
+
+for (const prefix of ["/opt/homebrew", "/usr/local"]) {
+  test(`Homebrew layout: resolves shared npm outside the Node keg at ${prefix}`, () => {
+    const expected = `${prefix}/lib/node_modules/npm/bin/npm-cli.js`;
+    assert.equal(resolveBundledNpmEntry("npm-cli.js", {
+      execPath: `${prefix}/Cellar/node/26.6.0/bin/node`,
+      exists: (candidate) => candidate === expected,
+    }), expected);
+  });
+}

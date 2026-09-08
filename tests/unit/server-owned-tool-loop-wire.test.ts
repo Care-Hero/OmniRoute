@@ -125,12 +125,12 @@ test("enabled Chat loop resumes once and logs receipts", async () => {
       messages: [{ role: "user", content: "hi" }],
     },
     skillsModelId: "openai",
-    executionContext: {
+    executionContext: () => ({
       apiKeyId: "k",
       sessionId: "s",
       requestId: "r",
       builtinToolNames: ["memory_search"],
-    },
+    }),
     expectedConnectionId: "conn-1",
     followUpLeg: async () => {
       followUps += 1;
@@ -151,8 +151,10 @@ test("enabled Chat loop resumes once and logs receipts", async () => {
       };
     },
     logReceipt: (r) => logged.push(r.index),
-    executeServerOwned: async (calls) =>
-      calls.map((c) => ({ id: c.id, name: c.name, result: { hits: [] }, replayed: false })),
+    executeServerOwned: async (calls, context) => {
+      assert.equal(context.apiKeyId, "k");
+      return calls.map((c) => ({ id: c.id, name: c.name, result: { hits: [] }, replayed: false }));
+    },
   });
   assert.equal(result.kind, "ok");
   if (result.kind !== "ok") return;

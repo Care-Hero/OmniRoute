@@ -245,9 +245,9 @@ describe("binaryManager", () => {
         const { resolveSpawnArgs } = await import("../../src/lib/services/installers/cliproxy.ts");
         const spawn = resolveSpawnArgs(8317);
 
-        assert.equal(spawn.command, path.join(binDir, "cliproxyapi.exe"));
+        assert.equal(fs.realpathSync(spawn.command), fs.realpathSync(path.join(binDir, "cliproxyapi.exe")));
         assert.equal(fs.existsSync(spawn.command), true);
-        assert.equal(await mod.getCurrentBinaryPath(tmpDir), spawn.command);
+        assert.equal(fs.realpathSync(await mod.getCurrentBinaryPath(tmpDir)), fs.realpathSync(spawn.command));
       } finally {
         if (originalPlatformDescriptor) {
           Object.defineProperty(process, "platform", originalPlatformDescriptor);

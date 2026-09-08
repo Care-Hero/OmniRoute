@@ -1,10 +1,15 @@
+import {
+  hasPerModelQuota,
+  shouldDeferAntigravityQuotaStateToCaller,
+} from "../../services/accountFallback.ts";
+import { classifyProviderError, PROVIDER_ERROR_TYPES } from "../../services/errorClassifier.ts";
 import type { ChatCoreErrorResult, ProviderLegUsage } from "@/lib/skills/toolLoopTypes.ts";
 import type { getProviderCredentials } from "@/sse/services/auth.ts";
 import type { updateFromHeaders, updateFromResponseBody } from "../../services/rateLimitManager.ts";
 import type { writeTerminalStatus } from "@/shared/utils/terminalStatus.ts";
 import type { updateProviderConnection } from "@/lib/db/providers.ts";
 import type { lockModel, recordCoreOwnedAntigravityQuotaState } from "../../services/accountFallback.ts";
-import { createErrorResult } from "../../utils/error.ts";
+import { createErrorResult, parseUpstreamError } from "../../utils/error.ts";
 import { applyStatusRestatement } from "../../config/upstreamStatusRestatement.ts";
 import { recoverAnthropicThinkingSignature } from "./thinkingSignatureRecovery.ts";
 import { isModelUnavailableError, getNextFamilyFallback as defaultGetNextFamilyFallback } from "../../services/modelFamilyFallback.ts";
@@ -178,28 +183,22 @@ async function toOutcome(
       connectionId,
     };
   }
-  let message = attempt.response.statusText || "upstream error";
-  let body: unknown = attempt.transformedBody;
-  try {
-    // clone() is the drain. sendProviderAttempt must not cancel() a streaming
-    // non-2xx body before we get here (BYOP 422 / Codex 429 Retry-After).
-    body = JSON.parse(await attempt.response.clone().text());
-    const err = (body as { error?: { message?: unknown } } | null)?.error;
-    if (err && typeof err.message === "string" && err.message) message = err.message;
-  } catch {
-    // keep statusText
-  }
+  const parsed = await parseUpstreamError(attempt.response.clone(), provider);
+  const message = parsed.message;
+  const body = parsed.responseBody;
   const restatement = applyStatusRestatement({
     provider,
     status,
     message,
     body,
-    retryAfterMs: null,
+    retryAfterMs: parsed.retryAfterMs,
   });
   const result = createErrorResult(
     restatement.status,
     message,
-    restatement.retryAfterMs
+    restatement.retryAfterMs,
+    typeof parsed.errorCode === "string" ? parsed.errorCode : undefined,
+    typeof parsed.errorType === "string" ? parsed.errorType : undefined
   );
   return {
     kind: "error",
@@ -278,6 +277,32 @@ export async function runProviderExecutionPipeline(
 
     const isolateProbe = await state.isolateProbeFailures();
     const canRotateAccount = policy.allowAccountRotation && !isolateProbe;
+    const failedConnectionId = currentConnectionId(connection);
+    const parsedFailure = await parseUpstreamError(attempt.response.clone(), target.provider);
+    // Streaming errors continue through chatCore's existing state handler.
+    if (!isolateProbe && !target.stream) {
+      state.recordRateLimitHeaders(
+        target.provider, failedConnectionId, attempt.response.headers, status, wire.currentModel
+      );
+      state.recordRateLimitBody(
+        target.provider, failedConnectionId, parsedFailure.responseBody, status, wire.currentModel
+      );
+      if (
+        failedConnectionId &&
+        !shouldDeferAntigravityQuotaStateToCaller(target.provider, true) &&
+        hasPerModelQuota(target.provider, wire.currentModel) &&
+        classifyProviderError(status, parsedFailure.message, target.provider) ===
+          PROVIDER_ERROR_TYPES.QUOTA_EXHAUSTED
+      ) {
+        state.lockModel(
+          target.provider,
+          failedConnectionId,
+          wire.currentModel,
+          "quota_exhausted",
+          parsedFailure.retryAfterMs || COOLDOWN_MS.rateLimit
+        );
+      }
+    }
 
     if (
       canRotateAccount &&
