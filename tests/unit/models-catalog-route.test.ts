@@ -953,6 +953,11 @@ test("v1 models catalog advertises GLM-5.2 provider aliases with hosted context 
       },
     });
 
+    // Discovery reconciliation runs on a timer after sync writes. Wait for it
+    // explicitly so the catalog snapshot includes the hosted 128K overrides.
+    const { runContextWindowReconcile } = await import("../../src/lib/contextWindowResolver.ts");
+    await runContextWindowReconcile();
+
     const response = await v1ModelsCatalog.getUnifiedModelsResponse(
       new Request("http://localhost/api/v1/models")
     );
