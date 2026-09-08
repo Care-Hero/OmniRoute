@@ -115,7 +115,7 @@ export type ToolLoopApplyResult =
   | { kind: "skip" }
   | {
       kind: "ok";
-      leg: NonStreamingProviderLegResult & { kind: "ok" };
+      leg: Extract<NonStreamingProviderLegResult, { kind: "ok" }>;
       usage: ProviderLegUsage | null;
       loop: ServerOwnedToolLoopResult;
     }

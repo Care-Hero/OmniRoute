@@ -3646,7 +3646,10 @@ export async function handleChatCore({
       () =>
         runWithCasGuard(
           reread ? { expectedRefreshToken: attemptedRefreshToken, reread } : null,
-          () => runWithOnPersist(persist, () => executor.refreshCredentials(credentials, log))
+          () =>
+            runWithOnPersist<Record<string, unknown> | null>(persist, () =>
+              executor.refreshCredentials(credentials, log)
+            )
         ),
       3,
       log,
