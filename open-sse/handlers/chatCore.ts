@@ -35,7 +35,10 @@ import { buildPostCallGuardrailContext } from "./chatCore/postCallGuardrailConte
 import { storeSemanticCacheResponse } from "./chatCore/semanticCacheStore.ts";
 import { buildNonStreamingResponseHeaders } from "./chatCore/nonStreamingResponseHeaders.ts";
 import { buildNonStreamingJsonResponse } from "./chatCore/nonStreamingJsonResponse.ts";
-import { enforceOutputTokenBudget } from "./chatCore/outputTokenBudget.ts";
+import {
+  enforceOutputTokenBudget,
+  resolveContextAdmissionLimits,
+} from "./chatCore/outputTokenBudget.ts";
 import { maybeConvertJsonBodyToSse } from "./chatCore/jsonBodyToSse.ts";
 import { assembleStreamingResponseHeaders } from "./chatCore/streamingResponseHeaders.ts";
 import { storeStreamingSemanticCacheResponse } from "./chatCore/streamingSemanticCacheStore.ts";
@@ -2175,17 +2178,23 @@ export async function handleChatCore({
     getExplicitModelOutputCap({ provider, model: effectiveModel })
   );
   const contextWindowChecksDisabled = areContextWindowChecksDisabled();
-  const outputBudget = enforceOutputTokenBudget(
-    body as Record<string, unknown>,
-    finalEstimatedInputTokens,
+  const admissionLimits = resolveContextAdmissionLimits(
+    provider,
     contextWindowChecksDisabled ? Number.MAX_SAFE_INTEGER : finalContextLimit,
-    targetFormat === FORMATS.CLAUDE && sourceFormat !== FORMATS.CLAUDE ? DEFAULT_MAX_TOKENS : 0,
-    modelOutputCap,
     contextWindowChecksDisabled
       ? null
       : toPositiveInteger(
           resolveInputTokenCapForGate({ provider, model: effectiveModel }, { isCombo })
-        )
+        ),
+    process.env.CODEX_CONTEXT_CHECK_MODE
+  );
+  const outputBudget = enforceOutputTokenBudget(
+    body as Record<string, unknown>,
+    finalEstimatedInputTokens,
+    admissionLimits.contextLimit,
+    targetFormat === FORMATS.CLAUDE && sourceFormat !== FORMATS.CLAUDE ? DEFAULT_MAX_TOKENS : 0,
+    modelOutputCap,
+    admissionLimits.maxInputTokens
   );
   if (outputBudget.ok === false) {
     const exceededInputCap = outputBudget.maxInputTokens !== undefined;

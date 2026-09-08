@@ -1,0 +1,63 @@
+name: Care Hero source image
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Reviewed full source commit to package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: carehero-image
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Validate revision input
+        shell: bash
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "IMAGE_REPOSITORY=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Build Linux image
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          docker buildx build --platform linux/amd64 --target runner-base \
+            --build-arg OMNIROUTE_BUILD_WORKERS=2 \
+            --build-arg "OMNIROUTE_BUILD_SHA=$SOURCE_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            --tag "$IMAGE_REPOSITORY:sha-$SOURCE_SHA" --load .
+      - name: Verify packaged revision and native SQLite
+        shell: bash
+        run: |
+          docker run --rm --network none --entrypoint node \
+            --env "EXPECTED_SHA=$SOURCE_SHA" "$IMAGE_REPOSITORY:sha-$SOURCE_SHA" \
+            -e 'const fs = require("fs"); const assert = require("assert/strict"); assert.equal(fs.readFileSync("/app/BUILD_SHA", "utf8").trim(), process.env.EXPECTED_SHA); const db = require("better-sqlite3") (":memory:"); assert.equal(db.pragma("quick_check", {simple:true}), "ok"); db.close(); console.log("Revision and native SQLite verified");'
+      - name: Publish immutable source tag
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
+          docker push "$IMAGE_REPOSITORY:sha-$SOURCE_SHA"
+          docker image inspect "$IMAGE_REPOSITORY:sha-$SOURCE_SHA" \
+            --format '{{index .RepoDigests 0}}' | tee -a "$GITHUB_STEP_SUMMARY"

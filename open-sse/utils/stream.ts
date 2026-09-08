@@ -1205,7 +1205,11 @@ export function createSSEStream(options: StreamOptions = {}) {
     doneSent = true;
     abortStreamFailure(controller, failure.internalFailure, failure.publicMessage, {
       notifyComplete: true,
-      preserveErrorEvent: provider === "kiro" && sourceFormat === FORMATS.OPENAI_RESPONSES,
+      preserveErrorEvent:
+        (provider === "codex" &&
+          sourceFormat === FORMATS.CLAUDE &&
+          failure.internalFailure.code === "context_length_exceeded") ||
+        (provider === "kiro" && sourceFormat === FORMATS.OPENAI_RESPONSES),
     });
     return true;
   };
