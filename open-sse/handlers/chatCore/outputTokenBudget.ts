@@ -4,6 +4,24 @@ export const OUTPUT_TOKEN_FIELDS = [
   "max_output_tokens",
 ] as const;
 
+/**
+ * Codex can accept long prompts which the chars/4 heuristic overestimates.
+ * Operators may delegate input admission to its authoritative upstream check.
+ * This does not change advertised context, compression policy, or output caps.
+ * The provider here is chatCore's resolved canonical id, never a client model slug.
+ */
+export function resolveContextAdmissionLimits(
+  provider: string,
+  contextLimit: number,
+  maxInputTokens: number | null,
+  codexMode: string | undefined
+): { contextLimit: number; maxInputTokens: number | null } {
+  if (provider === "codex" && codexMode === "upstream") {
+    return { contextLimit: Number.MAX_SAFE_INTEGER, maxInputTokens: null };
+  }
+  return { contextLimit, maxInputTokens };
+}
+
 export type OutputTokenBudgetResult =
   | {
       ok: true;

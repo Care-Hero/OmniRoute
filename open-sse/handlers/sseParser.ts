@@ -828,6 +828,7 @@ export function parseSSEToResponsesOutput(rawSSE, fallbackModel) {
     }),
     usage: picked.usage || null,
     status: picked.status || statusFallback,
+    ...(picked.error && typeof picked.error === "object" ? { error: picked.error } : {}),
     created_at: picked.created_at || Math.floor(Date.now() / 1000),
     metadata: picked.metadata || {},
   };

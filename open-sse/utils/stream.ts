@@ -1205,6 +1205,10 @@ export function createSSEStream(options: StreamOptions = {}) {
     doneSent = true;
     abortStreamFailure(controller, failure.internalFailure, failure.publicMessage, {
       notifyComplete: true,
+      preserveErrorEvent:
+        provider === "codex" &&
+        sourceFormat === FORMATS.CLAUDE &&
+        failure.internalFailure.code === "context_length_exceeded",
     });
     return true;
   };

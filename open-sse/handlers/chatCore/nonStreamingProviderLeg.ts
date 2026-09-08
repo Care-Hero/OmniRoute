@@ -34,6 +34,7 @@ import {
 } from "../../services/modelFamilyFallback.ts";
 import { isEmptyContentResponse } from "../../services/errorClassifier.ts";
 import { FORMATS } from "../../translator/formats.ts";
+import { normalizeUpstreamFailure } from "../../translator/response/openai-responses/pureHelpers.ts";
 
 /* -- exported types -------------------------------------------------------- */
 
@@ -828,6 +829,37 @@ export async function runNonStreamingProviderLeg(
   let responseBody = parsed.responseBody;
   const responsePayloadFormat = parsed.responsePayloadFormat;
   const looksLikeSSE = parsed.looksLikeSSE;
+
+  // Responses can fail inside an HTTP 200 event stream. Preserve that terminal
+  // error before translation/empty-content fallback erases it into a generic 502.
+  if (responsePayloadFormat === FORMATS.OPENAI_RESPONSES && responseBody.status === "failed") {
+    const failure = normalizeUpstreamFailure(responseBody);
+    const usage = extractUsage(responseBody, provider);
+    const receipt = buildReceipt(input, {
+      httpStatus: failure.status,
+      errorType: failure.code,
+      usage,
+      termination: "provider_error",
+      latencyMs: Date.now() - startMs,
+      startedAt,
+      endedAt: new Date().toISOString(),
+      connectionId,
+      model: currentModel,
+    });
+    return {
+      kind: "error",
+      result: legError(
+        failure.status,
+        failure.message,
+        null,
+        null,
+        failure.code,
+        failure.type
+      ) as ChatCoreErrorResult,
+      receipt,
+      usage,
+    };
+  }
 
   // -- ClinePass envelope unwrap + retry --------------------------------------
   if (provider === "clinepass") {
