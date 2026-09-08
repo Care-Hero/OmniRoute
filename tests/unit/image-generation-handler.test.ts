@@ -1993,6 +1993,7 @@ test("handleImageGeneration (codex) sanitizes upstream HTTP errors", async () =>
     });
     assert.equal(result.success, false);
     assert.equal(result.status, 403);
+    assert.equal(typeof result.error, "object");
     const safeError = JSON.stringify(result.error);
     assert.match(safeError, /upstream boom/);
     assert.doesNotMatch(safeError, /upstream-secret|iVBORw0KGgo/);

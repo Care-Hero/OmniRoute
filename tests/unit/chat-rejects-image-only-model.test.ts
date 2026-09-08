@@ -49,7 +49,7 @@ test("POST /v1/chat/completions with a HuggingFace image model returns 400 + gen
     const body = (await res.json()) as { error?: { message?: string } };
     const msg = body?.error?.message || JSON.stringify(body);
     assert.match(msg, /image-generation model/i);
-    assert.match(msg, /\/v1\/images\/generations/);
+    assert.match(msg, /POST v1\/images\/generations/);
     assert.equal(fetchCalls, 0, "must not dispatch upstream for an image-only model");
   } finally {
     globalThis.fetch = originalFetch;

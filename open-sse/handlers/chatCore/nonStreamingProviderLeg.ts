@@ -7,6 +7,7 @@
  * Returns usage in both ok and error results.
  */
 
+import { isLocalStreamLifecycleError } from "@/shared/utils/circuitBreaker";
 import type {
   ProviderLegUsage,
   ProviderLegReceipt,
@@ -463,14 +464,15 @@ export async function runNonStreamingProviderLeg(
     ) {
       throw error;
     }
-    const failureStatus =
-      error instanceof Error && error.name === "AbortError"
+    const aborted = isLocalStreamLifecycleError(error);
+    const failureStatus = aborted
         ? 499
         : error instanceof Error && error.name === "TimeoutError"
           ? 504
           : 502;
-    const failureMessage =
-      error instanceof Error
+    const failureMessage = aborted
+      ? "Request aborted"
+      : error instanceof Error
         ? formatProviderError(error, provider, currentModel, failureStatus)
         : "Provider request failed";
     const receipt = buildReceipt(input, {

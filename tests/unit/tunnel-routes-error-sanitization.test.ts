@@ -11,11 +11,9 @@
  *    body disclosed host layout, binary install paths, the OS account name and —
  *    for Tailscale — live `tskey-*` credentials. Hard Rule #12 forbids this.
  *
- *    `sanitizeErrorMessage()` alone does not close it: it only rewrites tokens
- *    that look like an absolute path ending in a *source* extension (SOURCE_EXT
- *    in open-sse/utils/error.ts), so `.json` state paths, extension-less binary
- *    paths and `tskey-*` keys all survive it verbatim. The first test below pins
- *    that, so the reason this module exists stays visible.
+ *    These routes use a fixed public fallback plus a classified reason. This
+ *    remains safe for future provider messages and arbitrary opaque secrets,
+ *    independently of the shared sanitizer's recognized path/token patterns.
  *
  * 2. `validateBody()` returns `{ success, error }` and has NO `response` field
  *    (`validatedJsonBody()` is the helper that has one). Three call sites did
@@ -41,7 +39,6 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "tunnel-sanitize-test-secret";
 
 const core = await import("../../src/lib/db/core.ts");
-const { sanitizeErrorMessage } = await import("../../open-sse/utils/error.ts");
 const { classifyTunnelError, toPublicSafeTunnelError } =
   await import("../../src/lib/api/publicSafeTunnelError.ts");
 const ngrokRoute = await import("../../src/app/api/tunnels/ngrok/route.ts");
@@ -100,20 +97,6 @@ async function withSilencedConsoleError<T>(fn: () => T | Promise<T>): Promise<[T
     console.error = original;
   }
 }
-
-// ── Why a dedicated module: sanitizeErrorMessage does not cover these ───────
-
-test("sanitizeErrorMessage alone leaves every tunnel leak shape intact", () => {
-  for (const leak of LEAKS) {
-    const out = sanitizeErrorMessage(leak.message);
-    const stillLeaks = leak.secrets.some((s) => out.includes(s));
-    assert.ok(
-      stillLeaks,
-      `${leak.label}: sanitizeErrorMessage unexpectedly covers this now — if the ` +
-        `shared sanitizer grew to handle it, simplify publicSafeTunnelError accordingly. Got: ${out}`
-    );
-  }
-});
 
 // ── The public-safe contract ───────────────────────────────────────────────
 

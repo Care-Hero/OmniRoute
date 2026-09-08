@@ -1,3 +1,16 @@
+// Node 26 exposes an unconfigured native Web Storage getter. Vitest leaves
+// existing globals in place, so explicitly use this test's jsdom storage.
+const testDom = (globalThis as typeof globalThis & { jsdom?: { window: Window } }).jsdom;
+if (testDom) {
+  for (const key of ["localStorage", "sessionStorage"] as const) {
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      writable: true,
+      value: testDom.window[key],
+    });
+  }
+}
+
 // jsdom (unlike real browsers) does not implement `window.matchMedia`. Several
 // dashboard components read the OS color-scheme preference via
 // `window.matchMedia("(prefers-color-scheme: dark)")` (see

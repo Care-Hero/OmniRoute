@@ -129,7 +129,7 @@ export async function applyServerOwnedToolLoopIfNeeded(input: {
   initialLeg: NonStreamingProviderLegResult;
   sourceBody: Record<string, unknown>;
   skillsModelId: string;
-  executionContext: ExecutionContext;
+  executionContext: ExecutionContext | (() => ExecutionContext);
   abortSignal?: AbortSignal;
   expectedConnectionId?: string;
   followUpLeg: (nextSourceBody: Record<string, unknown>) => Promise<NonStreamingProviderLegResult>;
@@ -155,7 +155,10 @@ export async function applyServerOwnedToolLoopIfNeeded(input: {
     sourceBody: input.sourceBody,
     sourceFormat: input.sourceFormat === FORMATS.CLAUDE ? "claude" : "openai",
     skillsModelId: input.skillsModelId,
-    executionContext: input.executionContext,
+    executionContext:
+      typeof input.executionContext === "function"
+        ? input.executionContext()
+        : input.executionContext,
     abortSignal: input.abortSignal,
     deadlineAtMs: Date.now() + LOOP_BUDGET_MS,
     expectedConnectionId: input.expectedConnectionId,
