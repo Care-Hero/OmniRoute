@@ -33,6 +33,12 @@ export function resolveBundledNpmEntry(
   candidates.push(join(binDir, "node_modules", "npm", "bin", name));
   candidates.push(join(binDir, "..", "lib", "node_modules", "npm", "bin", name));
 
+  // Homebrew keeps npm under its shared prefix, outside the versioned Node keg.
+  const homebrewPrefix = execPath.match(/^(.*)\/Cellar\/node(?:@[^/]+)?\/[^/]+\/bin\/node$/)?.[1];
+  if (homebrewPrefix) {
+    candidates.push(join(homebrewPrefix, "lib", "node_modules", "npm", "bin", name));
+  }
+
   for (const candidate of candidates) {
     if (exists(candidate)) return candidate;
   }

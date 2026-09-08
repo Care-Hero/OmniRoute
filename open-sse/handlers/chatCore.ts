@@ -3624,6 +3624,42 @@ export async function handleChatCore({
   let finalBody;
   let claudePromptCacheLogMeta = null;
 
+  // Preserve atomic refresh + persistence when recovery runs in the shared pipeline.
+  const refreshPipelineCredentials = async () => {
+    if (await shouldIsolateProbeFailures()) return null;
+    const attemptedRefreshToken =
+      typeof credentials?.refreshToken === "string" ? credentials.refreshToken : null;
+    const refreshConnectionId = getCurrentConnectionId();
+    const reread = refreshConnectionId
+      ? async () => {
+          const latest = await getProviderConnectionById(refreshConnectionId);
+          return typeof latest?.refreshToken === "string" ? latest.refreshToken : null;
+        }
+      : null;
+    let persisted = false;
+    const persist = async (next: Record<string, unknown>) => {
+      Object.assign(credentials, next);
+      if (onCredentialsRefreshed) await onCredentialsRefreshed(next);
+      persisted = true;
+    };
+    const refreshed = await refreshWithRetry(
+      () =>
+        runWithCasGuard(
+          reread ? { expectedRefreshToken: attemptedRefreshToken, reread } : null,
+          () =>
+            runWithOnPersist<Record<string, unknown> | null>(persist, () =>
+              executor.refreshCredentials(credentials, log)
+            )
+        ),
+      3,
+      log,
+      provider
+    );
+    if (!refreshed || (!refreshed.accessToken && !refreshed.copilotToken)) return null;
+    if (!persisted) await persist(refreshed);
+    return refreshed;
+  };
+
   let pipelineRecovered = false;
   if (stream) {
   try {
@@ -3649,6 +3685,7 @@ export async function handleChatCore({
         replaceCredentials: (next) => {
           Object.assign(credentials, next);
         },
+        refreshCredentials: refreshPipelineCredentials,
         onCredentialsRefreshed: async () => {},
         assertManagedLeaseFence: (id) => {
           assertManagedLeaseFence(id);
@@ -4778,6 +4815,7 @@ export async function handleChatCore({
             replaceCredentials: (next) => {
               Object.assign(credentials, next);
             },
+            refreshCredentials: refreshPipelineCredentials,
             onCredentialsRefreshed: async () => {},
             assertManagedLeaseFence: (id) => {
               assertManagedLeaseFence(id);
@@ -4917,7 +4955,10 @@ export async function handleChatCore({
         error: err.error || "Provider request failed",
         providerRequest: finalBody || translatedBody,
         providerResponse: isNetworkThrow ? undefined : err.response,
-        clientResponse: buildErrorBody(err.status, err.error || "Provider request failed"),
+        clientResponse:
+          err.status === 499
+            ? undefined
+            : buildErrorBody(err.status, err.error || "Provider request failed"),
         cacheSource: "upstream",
       });
       persistFailureUsage(
@@ -4940,7 +4981,7 @@ export async function handleChatCore({
       initialLeg: legResult,
       sourceBody: (body || {}) as Record<string, unknown>,
       skillsModelId: getSkillsModelIdForFormat(sourceFormat),
-      executionContext: {
+      executionContext: () => ({
         apiKeyId: memoryOwnerId || "local",
         sessionId: pipelineSessionId,
         requestId: skillRequestId,
@@ -4957,7 +4998,7 @@ export async function handleChatCore({
         executionFenceEnabled: true,
         provider,
         model: effectiveModel,
-      },
+      }),
       abortSignal: clientRawRequest?.signal,
       expectedConnectionId: expectedConn,
       followUpLeg: async (nextSourceBody) => {
@@ -5047,6 +5088,12 @@ export async function handleChatCore({
     }
     finalBody = providerRequestCapture.body(legResult.providerRequest || translatedBody);
     const capturedOk = providerRequestCapture.latest?.();
+    claudePromptCacheLogMeta = buildClaudePromptCacheLogMeta(
+      targetFormat,
+      finalBody,
+      legResult.requestHeaders || capturedOk?.headers || {},
+      clientRawRequest?.headers
+    );
     reqLogger.logTargetRequest(
       legResult.requestUrl || capturedOk?.url || "",
       legResult.requestHeaders || capturedOk?.headers || {},

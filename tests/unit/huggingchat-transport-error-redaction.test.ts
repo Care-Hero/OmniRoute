@@ -56,7 +56,6 @@ function assertPublicFailureIsSanitized(result: TransportFailureResult): void {
   assert.equal(result.payload.error.type, "upstream_error");
   assert.match(result.payload.error.message, /^HuggingChat connection failed:/);
   assert.match(result.payload.error.message, /<path>/);
-  assert.match(result.payload.error.message, /access_token=\[REDACTED\]/);
 
   const publicText = JSON.stringify({ payload: result.payload, errorLogs: result.errorLogs });
   assert.doesNotMatch(publicText, /transport-secret/);

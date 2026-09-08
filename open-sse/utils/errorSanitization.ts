@@ -11,6 +11,7 @@ const MAX_ERROR_SCAN_HEADROOM = 512;
 const MAX_SECURITY_ESCAPE_LAYERS = 3;
 const STRONG_CREDENTIAL_TOKEN_SOURCE =
   "(?:eyJ[A-Za-z0-9_-]{5,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}|" +
+  "AIza[A-Za-z0-9_-]{20,}|" +
   "github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9_-]{20,}|" +
   "xox[a-z]-[A-Za-z0-9-]{10,}|(?:AKIA|ASIA)[A-Z0-9]{16}|" +
   "(?<![A-Za-z0-9])sk[-_][A-Za-z0-9._~+/=-]{8,}|" +

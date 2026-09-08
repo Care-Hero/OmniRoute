@@ -25,7 +25,7 @@ test("chatCore acquires cumulative gates immediately before withRateLimit", () =
 
 test("each rotated account attempt acquires and releases a fresh composite slot", () => {
   const attemptLoop = source.indexOf(
-    "while (attempts < maxAttempts || antigravityByopRotationPending)"
+    "while (attempts < maxAttempts)"
   );
   const acquire = source.indexOf("await acquireConcurrencyGates(", attemptLoop);
   const finallyRelease = source.indexOf("releaseAccountSemaphore();", acquire);

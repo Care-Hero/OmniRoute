@@ -33,7 +33,7 @@ export function createStreamFailureAborter(context: AborterContext) {
     controller: TransformStreamDefaultController<Uint8Array>,
     failure: StreamFailurePayload,
     publicMessage: string,
-    options: { notifyComplete?: boolean } = {}
+    options: { notifyComplete?: boolean; preserveErrorEvent?: boolean } = {}
   ): void => {
     let handled = false;
     context.timing.markInterrupted();
@@ -71,6 +71,10 @@ export function createStreamFailureAborter(context: AborterContext) {
     }
     context.clearIdleTimer();
     if (!handled) context.clearPendingRequest();
-    controller.error(context.markPendingRequestCleared(new Error(safeMessage)));
+    // A protocol error event is already queued for these terminal failures.
+    // Erroring the readable side would discard that event for slower clients.
+    if (!options.preserveErrorEvent) {
+      controller.error(context.markPendingRequestCleared(new Error(safeMessage)));
+    }
   };
 }

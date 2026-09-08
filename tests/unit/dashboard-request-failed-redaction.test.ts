@@ -17,7 +17,7 @@ const probePath = fileURLToPath(
 type ProbeResult = {
   delivered: RequestFailedPayload;
   replayMatches: boolean;
-  internalRawPreserved: boolean;
+  persistedErrorSanitized: boolean;
   writerDrained: boolean;
 };
 
@@ -48,7 +48,7 @@ function runProbe(env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: str
   });
 }
 
-test("persistAttemptLogs redacts request.failed delivery/replay but keeps its internal log", async () => {
+test("persistAttemptLogs redacts delivery, replay, and persisted error diagnostics", async () => {
   const isolationRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "omniroute-dashboard-failure-redaction-")
   );
@@ -86,10 +86,10 @@ test("persistAttemptLogs redacts request.failed delivery/replay but keeps its in
     assert.equal(result.delivered.provider, "private-provider");
     assert.equal(
       result.delivered.error,
-      "Error: Provider failed in <path> with api_key='[REDACTED]'"
+      "Error: Provider failed in <path>"
     );
     assert.equal(result.replayMatches, true);
-    assert.equal(result.internalRawPreserved, true);
+    assert.equal(result.persistedErrorSanitized, true);
     assert.equal(result.writerDrained, true);
   } finally {
     // The probe exits only after draining/closing its writer and resetting its DB singleton.

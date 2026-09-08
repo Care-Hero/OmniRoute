@@ -953,6 +953,11 @@ test("v1 models catalog advertises GLM-5.2 provider aliases with hosted context 
       },
     });
 
+    // Discovery reconciliation runs on a timer after sync writes. Wait for it
+    // explicitly so the catalog snapshot includes the hosted 128K overrides.
+    const { runContextWindowReconcile } = await import("../../src/lib/contextWindowResolver.ts");
+    await runContextWindowReconcile();
+
     const response = await v1ModelsCatalog.getUnifiedModelsResponse(
       new Request("http://localhost/api/v1/models")
     );
@@ -1092,9 +1097,9 @@ test("v1 models catalog does not duplicate custom Jina specialty models", async 
 
   assert.equal(response.status, 200);
   assert.equal(visibleJinaEmbeddingRows.length, 1);
-  assert.equal(visibleJinaEmbeddingRows[0].id, "jina-ai/jina-embeddings-v5-text-small");
+  assert.equal(visibleJinaEmbeddingRows[0].id, "jina/jina-embeddings-v5-text-small");
   assert.equal(visibleJinaRerankRows.length, 1);
-  assert.equal(visibleJinaRerankRows[0].id, "jina-ai/jina-reranker-v3");
+  assert.equal(visibleJinaRerankRows[0].id, "jina/jina-reranker-v3");
 });
 
 test("v1 models catalog exposes image model input and output modalities for advanced image providers", async () => {

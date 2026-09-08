@@ -319,10 +319,11 @@ test("handleUcVideoGeneration (persona) 401s (retryable) when credential missing
   assert.equal(result.retryable, true);
 });
 
-test("handleUcVideoGeneration (persona) times out with 504 when never ready", async () => {
+test("handleUcVideoGeneration (persona) times out with 504 when never ready", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const resultUrl = "https://videogen.moveinwater.com/never";
   const fetchImpl = personaFetch({
-    pendingPolls: 1000,
+    pendingPolls: Number.POSITIVE_INFINITY,
     resultUrl,
     jwt: fakeJwt("uid", FUTURE_EXP),
   });
@@ -332,7 +333,9 @@ test("handleUcVideoGeneration (persona) times out with 504 when never ready", as
     body: { prompt: "x", timeout_ms: 5, poll_interval_ms: 1 },
     credentials: PERSONA_CRED,
     fetchImpl,
-    sleepImpl: noSleep,
+    sleepImpl: async (ms) => {
+      t.mock.timers.tick(ms);
+    },
   })) as { success: boolean; status?: number };
   assert.equal(result.success, false);
   assert.equal(result.status, 504);

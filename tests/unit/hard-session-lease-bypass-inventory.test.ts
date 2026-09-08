@@ -13,7 +13,7 @@ type BypassClass = "A" | "B" | "C";
 
 const EXPECTED: Record<InventoryKind, Record<string, number>> = {
   credential: {
-    "open-sse/handlers/chatCore.ts": 2,
+    "open-sse/handlers/chatCore/providerExecutionPipeline.ts": 2,
     "open-sse/services/imageCombo.ts": 1,
     "open-sse/services/speechCombo.ts": 1,
     "open-sse/services/videoCombo.ts": 2,
@@ -80,7 +80,8 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
   },
   connection: {
     "open-sse/handlers/autoComboCandidates.ts": 1,
-    "open-sse/handlers/chatCore.ts": 2,
+    // Credential refresh rereads the same account under the CAS guard.
+    "open-sse/handlers/chatCore.ts": 3,
     "open-sse/handlers/cursorCliProxy.ts": 1,
     "open-sse/services/alibabaFreeTier.ts": 1,
     "open-sse/services/alibabaFreeTierQuotaFetcher.ts": 1,
@@ -89,7 +90,7 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     // v3.8.50 back-merge additions (f95b03d7): combo routing infra and the
     // volcengine-plan binding/auto-sync services query connections the same
     // way as their classified siblings.
-    "open-sse/services/combo.ts": 1,
+    "open-sse/services/combo/executeTargetGates.ts": 1,
     "open-sse/services/combo/providerWildcard.ts": 1,
     "open-sse/services/tokenRefresh.ts": 1,
     "src/lib/providers/volcPlanAutoSyncBackfill.ts": 1,
@@ -173,6 +174,8 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     "src/lib/tokenHealthCheckCopilot.ts": 1,
     "src/lib/usage/callLogs.ts": 1,
     "src/lib/usage/codexResetCredits.ts": 1,
+    "src/lib/usage/grokResetCredits.ts": 1,
+    "src/app/api/usage/codex-reset-credit/route.ts": 1,
     "src/lib/usage/comboScoringInspector.ts": 1,
     "src/lib/usage/providerLimits.ts": 4,
     "src/lib/usage/resilienceExplain.ts": 1,
@@ -190,6 +193,7 @@ const CLASSIFICATION: Record<InventoryKind, Record<string, BypassClass>> = {
   credential: Object.fromEntries(
     Object.keys(EXPECTED.credential).map((file) => [
       file,
+      file === "open-sse/handlers/chatCore/providerExecutionPipeline.ts" ||
       file === "src/app/api/v1/session-leases/route.ts" ||
       file === "src/sse/handlers/chat.ts" ||
       file === "src/sse/services/auth.ts"
@@ -212,10 +216,10 @@ const CLASSIFICATION: Record<InventoryKind, Record<string, BypassClass>> = {
       [
         "open-sse/handlers/autoComboCandidates.ts",
         "open-sse/handlers/chatCore.ts",
-        "open-sse/services/combo.ts",
+        "open-sse/services/combo/executeTargetGates.ts",
         "open-sse/services/alibabaFreeTier.ts",
         "open-sse/services/alibabaFreeTierQuotaFetcher.ts",
-        "open-sse/services/combo.ts",
+        "open-sse/services/combo/executeTargetGates.ts",
         "open-sse/services/combo/providerWildcard.ts",
         "open-sse/services/tokenRefresh.ts",
         "src/app/api/translator/send/route.ts",
@@ -278,6 +282,11 @@ function countCalls(): Record<InventoryKind, Record<string, number>> {
           }
         } else if (
           ts.isPropertyAccessExpression(expression) &&
+          expression.name.text === "getProviderCredentials"
+        ) {
+          increment("credential");
+        } else if (
+          ts.isPropertyAccessExpression(expression) &&
           expression.name.text === "execute" &&
           ts.isIdentifier(expression.expression) &&
           ["executor", "fallbackExecutor", "providerExecutor", "streamExecutor"].includes(
@@ -336,7 +345,10 @@ test("managed request surfaces are fenced centrally or rejected before independe
     core,
     /assertManagedLeaseFence\(getExecutionConnectionId\(getExecutionCredentials\(\)\)\)/
   );
-  assert.match(core, /provider === "codex" &&\s*!managedLease/);
+  assert.match(core, /allowAccountRotation: !managedLease && comboStrategy !== "context-relay"/);
+  const pipeline = fs.readFileSync(path.join(REPO_ROOT, "open-sse/handlers/chatCore/providerExecutionPipeline.ts"), "utf8");
+  assert.match(pipeline, /canRotateAccount = policy.allowAccountRotation && !isolateProbe/);
+  assert.match(pipeline, /canRotateAccount &&\s*target.provider === "codex"/);
   assert.match(ws, /LEASE_UNSUPPORTED_TRANSPORT/);
   assert.match(internalKeys, /!k\.scopes\?\.includes\(EXCLUSIVE_LEASE_SCOPE\)/);
   for (const source of auxiliaryIsolationSources) {
