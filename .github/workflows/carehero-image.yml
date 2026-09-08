@@ -17,7 +17,6 @@ concurrency:
 
 jobs:
   publish:
-    if: github.repository == 'Care-Hero/OmniRoute'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -25,11 +24,12 @@ jobs:
       packages: write
     env:
       SOURCE_SHA: ${{ inputs.source_sha }}
-      IMAGE_REPOSITORY: ghcr.io/care-hero/omniroute
     steps:
       - name: Validate revision input
         shell: bash
-        run: '[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]'
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "IMAGE_REPOSITORY=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - name: Checkout reviewed source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -42,7 +42,7 @@ jobs:
           docker buildx build --platform linux/amd64 --target runner-base \
             --build-arg OMNIROUTE_BUILD_WORKERS=2 \
             --build-arg "OMNIROUTE_BUILD_SHA=$SOURCE_SHA" \
-            --label org.opencontainers.image.source=https://github.com/Care-Hero/OmniRoute \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$SOURCE_SHA" \
             --tag "$IMAGE_REPOSITORY:sha-$SOURCE_SHA" --load .
       - name: Verify packaged revision and native SQLite
