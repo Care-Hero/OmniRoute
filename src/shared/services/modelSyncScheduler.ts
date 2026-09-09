@@ -147,37 +147,109 @@ export function isModelSyncInternalRequest(request: { headers: Headers }): boole
 /**
  * Fetch all provider connections that have autoSync enabled.
  */
-async function getAutoSyncConnections(): Promise<
-  Array<{ id: string; provider: string; name?: string }>
-> {
+export type AutoSyncConnection = { id: string; provider: string; name?: string };
+
+/** The startup cycle's leftovers: active auto-sync connections that were
+ *  skipped because an exclusive lease (an OAuth token refresh in flight)
+ *  made them unavailable at that instant. Retried by `runBootResync`. */
+let deferredAtStartup: AutoSyncConnection[] = [];
+
+async function getAutoSyncConnections(): Promise<{
+  eligible: AutoSyncConnection[];
+  deferred: AutoSyncConnection[];
+}> {
   try {
     const { getProviderConnections } = await import("@/lib/db/providers");
     const connections = await getProviderConnections();
-    const autoSyncConnections: Array<{ id: string; provider: string; name?: string }> = [];
+    const eligible: AutoSyncConnection[] = [];
+    const deferred: AutoSyncConnection[] = [];
     for (const conn of connections) {
       if (!conn.isActive && conn.isActive !== undefined) continue;
-      if (
-        typeof conn.id === "string" &&
-        (await isConnectionUnavailableToAuxiliaryActivity(conn.id))
-      )
-        continue;
       const psd =
         conn.providerSpecificData && typeof conn.providerSpecificData === "object"
           ? (conn.providerSpecificData as Record<string, unknown>)
           : {};
       if (psd.autoSync !== true) continue;
       if (typeof conn.id !== "string" || typeof conn.provider !== "string") continue;
-      autoSyncConnections.push({
+      const entry: AutoSyncConnection = {
         id: conn.id,
         provider: conn.provider,
         ...(typeof conn.name === "string" ? { name: conn.name } : {}),
-      });
+      };
+      if (await isConnectionUnavailableToAuxiliaryActivity(conn.id)) deferred.push(entry);
+      else eligible.push(entry);
     }
-    return autoSyncConnections;
+    return { eligible, deferred };
   } catch (err) {
     console.warn("[ModelSync] Failed to load connections:", (err as Error).message);
-    return [];
+    return { eligible: [], deferred: [] };
   }
+}
+
+export const BOOT_RESYNC_RETRY_MS = 15_000;
+export const BOOT_RESYNC_MAX_MS = 10 * 60 * 1000;
+
+/**
+ * Boot re-sync (Care-Hero, 2026-09-09). The startup cycle skips any connection
+ * that is leased at the 5 s mark and the next scheduled cycle is hours away, so
+ * a claude OAuth account refreshing its token at boot had NO live catalog for
+ * minutes and every request for it answered 400 "not available in the active
+ * live catalog" (prod 2026-09-08 11:14Z). Retry the skipped + failed
+ * connections every `retryMs` (waiting before the first retry too) until each
+ * syncs or `maxMs` elapses. Pure over
+ * its deps so the loop is unit-testable; `sync` is `syncConnectionModels` in
+ * production.
+ */
+export async function runBootResync(
+  targets: AutoSyncConnection[],
+  deps: {
+    sync: (conn: AutoSyncConnection) => Promise<boolean>;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+    log?: (line: string) => void;
+    retryMs?: number;
+    maxMs?: number;
+  }
+): Promise<{ synced: AutoSyncConnection[]; abandoned: AutoSyncConnection[] }> {
+  const sleep = deps.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms).unref?.()));
+  const now = deps.now ?? Date.now;
+  const log = deps.log ?? ((line: string) => console.log(line));
+  const retryMs = deps.retryMs ?? BOOT_RESYNC_RETRY_MS;
+  const maxMs = deps.maxMs ?? BOOT_RESYNC_MAX_MS;
+  const synced: AutoSyncConnection[] = [];
+  let pending = [...targets];
+  const startedAt = now();
+  let attempt = 0;
+  while (pending.length > 0) {
+    // The startup cycle just tried every target; an immediate retry cannot
+    // land (the lease is still held), so every attempt waits first.
+    if (now() - startedAt > maxMs) break;
+    await sleep(retryMs);
+    attempt++;
+    log(
+      `[ModelSync] boot re-sync attempt ${attempt} — ${pending.length} connection(s): ${pending
+        .map((c) => `${c.name || c.provider} (${c.id.slice(0, 8)})`)
+        .join(", ")}`
+    );
+    const results = await Promise.allSettled(pending.map((c) => deps.sync(c)));
+    const next: AutoSyncConnection[] = [];
+    pending.forEach((c, i) => {
+      const r = results[i];
+      if (r.status === "fulfilled" && r.value === true) synced.push(c);
+      else next.push(c);
+    });
+    pending = next;
+  }
+  if (pending.length > 0) {
+    log(
+      `[ModelSync] boot re-sync gave up after ${Math.round((now() - startedAt) / 1000)}s — still unsynced: ${pending
+        .map((c) => `${c.name || c.provider} (${c.id.slice(0, 8)})`)
+        .join(", ")}`
+    );
+  } else if (synced.length > 0) {
+    log(`[ModelSync] boot re-sync complete — ${synced.length} connection(s) synced`);
+  }
+  return { synced, abandoned: pending };
 }
 
 /**
@@ -236,10 +308,18 @@ async function runSyncCycle(apiBaseUrl: string): Promise<void> {
   const start = Date.now();
 
   try {
-    const connections = await getAutoSyncConnections();
+    const { eligible: connections, deferred } = await getAutoSyncConnections();
+    if (deferred.length > 0) {
+      console.log(
+        `[ModelSync] ${deferred.length} auto-sync connection(s) unavailable this cycle (leased): ${deferred
+          .map((c) => `${c.name || c.provider} (${c.id.slice(0, 8)})`)
+          .join(", ")}`
+      );
+    }
 
     if (connections.length === 0) {
       console.log("[ModelSync] No connections with autoSync enabled — skipping cycle");
+      deferredAtStartup = deferred;
       return;
     }
 
@@ -255,6 +335,15 @@ async function runSyncCycle(apiBaseUrl: string): Promise<void> {
     console.log(
       `[ModelSync] Cycle complete: ${succeeded}/${connections.length} synced in ${Date.now() - start}ms`
     );
+    // Everything the startup cycle did not land: leased at the 5 s mark, or a
+    // sync that failed outright. Retried by the boot re-sync (see below).
+    deferredAtStartup = [
+      ...deferred,
+      ...connections.filter((_, i) => {
+        const r = results[i];
+        return !(r.status === "fulfilled" && r.value === true);
+      }),
+    ];
 
     // Record last sync time
     try {
@@ -289,8 +378,21 @@ export function startModelSyncScheduler(
 
   console.log(`[ModelSync] Scheduler started — interval: ${effectiveIntervalMs / 3_600_000}h`);
 
-  // Run immediately on startup (staggered by 5s to avoid startup congestion)
-  const startupDelay = setTimeout(() => runSyncCycle(trustedApiBaseUrl), 5_000);
+  // Run immediately on startup (staggered by 5s to avoid startup congestion),
+  // then re-sync whatever that cycle could not land (leased / failed) until it
+  // does — the live catalog must be complete before this container is ready.
+  const startupDelay = setTimeout(async () => {
+    await runSyncCycle(trustedApiBaseUrl);
+    const targets = deferredAtStartup;
+    deferredAtStartup = [];
+    if (targets.length === 0) return;
+    // Detached on purpose: the startup timer resolves with the cycle; the
+    // re-sync keeps going on its own (unref'd sleeps) until every target
+    // lands or BOOT_RESYNC_MAX_MS passes.
+    void runBootResync(targets, {
+      sync: (conn) => syncConnectionModels(conn.id, conn.name || conn.provider, trustedApiBaseUrl),
+    });
+  }, 5_000);
   startupDelay.unref?.();
 
   // Codex-only: revalidate catalog only on first-start or app upgrade (not every boot).

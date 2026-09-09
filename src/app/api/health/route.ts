@@ -18,12 +18,31 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
+const NO_STORE = { "Cache-Control": "no-store, no-cache, must-revalidate" };
+
+/**
+ * `HEALTH_REQUIRE_CATALOG=1` turns this liveness probe into a READINESS probe:
+ * 503 `{ status: "starting", waiting: [providerIds] }` until every provider with
+ * an active connection has a live model catalog (src/lib/health/readiness.ts).
+ * Orchestrators that gate cutover on this route (Railway `healthcheckPath`)
+ * then keep the previous container serving until the new one can actually
+ * route. Off by default — upstream behaviour unchanged.
+ */
 export async function GET() {
+  const { catalogReadinessRequired, checkCatalogReadiness } = await import(
+    "@/lib/health/readiness"
+  );
+  if (catalogReadinessRequired()) {
+    const { ready, waiting } = await checkCatalogReadiness();
+    if (!ready) {
+      return NextResponse.json(
+        { status: "starting", waiting, timestamp: new Date().toISOString() },
+        { status: 503, headers: NO_STORE }
+      );
+    }
+  }
   return NextResponse.json(
     { status: "ok", timestamp: new Date().toISOString() },
-    {
-      status: 200,
-      headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
-    }
+    { status: 200, headers: NO_STORE }
   );
 }
