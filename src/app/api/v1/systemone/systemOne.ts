@@ -89,18 +89,29 @@ function isProbability(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
 }
 
-/** A distribution: a record whose every value is a probability in [0,1]. */
-function isProbabilityDistribution(v: unknown): v is Json {
-  if (!isRecord(v)) return false;
+const DISTRIBUTION_TOLERANCE = 1e-3;
+
+/**
+ * A distribution over EXACTLY the expected keys: every value a probability in
+ * [0,1], the key set equal to `keys` (no missing, no extra), and the values
+ * summing to 1 within floating-point tolerance.
+ */
+function isDistributionOver(v: unknown, keys: string[]): v is Json {
+  if (!isRecord(v) || keys.length === 0) return false;
+  const present = Object.keys(v);
+  if (present.length !== keys.length || !present.every((k) => keys.includes(k))) return false;
   const values = Object.values(v);
-  return values.length > 0 && values.every(isProbability);
+  if (!values.every(isProbability)) return false;
+  const sum = (values as number[]).reduce((a, b) => a + b, 0);
+  return Math.abs(sum - 1) <= DISTRIBUTION_TOLERANCE;
 }
 
 /**
  * One upstream answer, validated in full against its native question:
  *  (a) type matches; (b) primary value present (choice ∈ option keys);
- *  (c) distribution present with numbers in [0,1] (choice keys == option set,
- *      boolean `probability` in [0,1], score within the criteria range);
+ *  (c) distribution present over exactly the legend keys, numbers in [0,1]
+ *      summing to 1 (choice: the option set; score: the criteria indices
+ *      "0".."n-1"); boolean `probability` in [0,1]; score within the range;
  *  (d) `confidence` (from provider metadata) is a number in [0,1] for the
  *      answer types that carry it natively (choice, score).
  */
@@ -119,11 +130,7 @@ function isValidAnswer(question: Json, answer: unknown, confidence: unknown): bo
     const optionKeys = Object.keys(question.criteria);
     if (optionKeys.length === 0) return false;
     if (typeof answer.choice !== "string" || !optionKeys.includes(answer.choice)) return false;
-    if (!isProbabilityDistribution(answer.probabilities)) return false;
-    const probKeys = Object.keys(answer.probabilities);
-    if (probKeys.length !== optionKeys.length || !probKeys.every((k) => optionKeys.includes(k))) {
-      return false;
-    }
+    if (!isDistributionOver(answer.probabilities, optionKeys)) return false;
     return isProbability(confidence);
   }
 
@@ -131,7 +138,8 @@ function isValidAnswer(question: Json, answer: unknown, confidence: unknown): bo
   if (typeof answer.score !== "number" || !Number.isFinite(answer.score)) return false;
   if (!Array.isArray(question.criteria) || question.criteria.length === 0) return false;
   if (answer.score < 0 || answer.score > question.criteria.length - 1) return false;
-  if (!isProbabilityDistribution(answer.probabilities)) return false;
+  const legendKeys = question.criteria.map((_c: unknown, i: number) => String(i));
+  if (!isDistributionOver(answer.probabilities, legendKeys)) return false;
   return isProbability(confidence);
 }
 
@@ -178,7 +186,10 @@ export function vercelResultToNative(
   const confidences = isRecord(typesafe.confidence) ? typesafe.confidence : {};
   // Null-prototype so an answer keyed `__proto__` survives the round trip.
   const out: Json = Object.create(null);
-  for (const [name, raw] of Object.entries(answers)) {
+  // Only the questions the caller asked are translated: an upstream answer under
+  // any other key was never validated and must not reach the client.
+  for (const name of Object.keys(nativeQuestions)) {
+    const raw = answers[name];
     if (!isRecord(raw)) continue;
     const question = isRecord(nativeQuestions[name]) ? (nativeQuestions[name] as Json) : {};
     const confidence =

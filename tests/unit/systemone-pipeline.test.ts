@@ -361,6 +361,65 @@ test("a success body missing usage yields a 502", async () => {
   assert.equal(routed!.status, 502);
 });
 
+test("choice probabilities that do not sum to 1 yield a 502", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-choicesum", "machine-s1", []);
+  const reply = {
+    ...CHOICE_OK,
+    answers: { verdict: { type: "choice", choice: "yes", probabilities: { yes: 0.9, no: 0.9 } } },
+  };
+  const routed = await postValid(created, CHOICE_Q, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 502);
+});
+
+test("score probabilities keyed off the legend yield a 502", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-scorekeys", "machine-s1", []);
+  const scoreQ = { level: { type: "score", instructions: "?", criteria: ["low", "high"] } };
+  const reply = {
+    answers: { level: { type: "score", score: 1, probabilities: { bogus: 1 } } },
+    usage: { inputTokens: 4, outputTokens: 0 },
+    providerMetadata: { typesafe: { confidence: { level: 0.7 } } },
+  };
+  const routed = await postValid(created, scoreQ, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 502);
+});
+
+test("a valid score result over the legend indices passes and regains its legend", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-scoreok", "machine-s1", []);
+  const scoreQ = { level: { type: "score", instructions: "?", criteria: ["low", "high"] } };
+  const reply = {
+    answers: { level: { type: "score", score: 1, probabilities: { "0": 0.25, "1": 0.75 } } },
+    usage: { inputTokens: 4, outputTokens: 0 },
+    providerMetadata: { typesafe: { confidence: { level: 0.7 } } },
+  };
+  const routed = await postValid(created, scoreQ, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 200);
+  const answer = (await routed!.json()).answers.level;
+  assert.equal(answer.score, 1);
+  assert.equal(answer.confidence, 0.7);
+  assert.deepEqual(answer.legend, { "0": "low", "1": "high" });
+});
+
+test("an unrequested upstream answer key is dropped, never translated", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-extrakey", "machine-s1", []);
+  const reply = {
+    ...CHOICE_OK,
+    answers: { ...CHOICE_OK.answers, extra: { type: "boolean", probability: 2 } },
+  };
+  const routed = await postValid(created, CHOICE_Q, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 200);
+  const answers = (await routed!.json()).answers;
+  assert.equal(answers.extra, undefined);
+  assert.equal(answers.verdict.choice, "yes");
+});
+
 test("a score outside the criteria range yields a 502", async () => {
   await seedVercelConnection();
   const created = await apiKeysDb.createApiKey("s1-scorerange", "machine-s1", []);
