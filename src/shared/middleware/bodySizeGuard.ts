@@ -68,8 +68,9 @@ const ROUTE_LIMITS: BodySizeRule[] = [
   // normalises here) carries the same image-heavy agent contexts as the OpenAI
   // routes: a subagent fan-out reading photos hit the 10 MB default with 413
   // "Request body too large" (Care-Hero prod 2026-09-21) while chat/completions
-  // was allowed 50 MB. `count_tokens` rides the prefix.
-  { prefix: "/api/v1/messages", limit: MAX_BODY_BYTES_LLM_API },
+  // was allowed 50 MB. Exact path only: `/api/v1/messages/count_tokens` parses
+  // its body without the Messages admission budget, so it keeps the default.
+  { prefix: "/api/v1/messages", limit: MAX_BODY_BYTES_LLM_API, exactPath: true },
   { prefix: "/api/v1/images", limit: MAX_BODY_BYTES_MEDIA },
   { prefix: "/api/v1/videos", limit: MAX_BODY_BYTES_MEDIA },
   { prefix: "/api/v1/audio/transcriptions", limit: MAX_BODY_BYTES_AUDIO },
