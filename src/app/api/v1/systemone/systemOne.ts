@@ -85,20 +85,62 @@ const NATIVE_TO_ANSWER_TYPE: Record<string, string> = {
   score: "score",
 };
 
-/** Is one upstream answer well-formed for its question type (known type + required value)? */
-function isValidAnswer(expectedAnswerType: string, answer: unknown): boolean {
-  if (!isRecord(answer) || answer.type !== expectedAnswerType) return false;
-  if (expectedAnswerType === "boolean") return typeof answer.probability === "number";
-  if (expectedAnswerType === "choice") return typeof answer.choice === "string";
-  if (expectedAnswerType === "score") return typeof answer.score === "number";
-  return false;
+function isProbability(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
+}
+
+/** A distribution: a record whose every value is a probability in [0,1]. */
+function isProbabilityDistribution(v: unknown): v is Json {
+  if (!isRecord(v)) return false;
+  const values = Object.values(v);
+  return values.length > 0 && values.every(isProbability);
+}
+
+/**
+ * One upstream answer, validated in full against its native question:
+ *  (a) type matches; (b) primary value present (choice ∈ option keys);
+ *  (c) distribution present with numbers in [0,1] (choice keys == option set,
+ *      boolean `probability` in [0,1], score within the criteria range);
+ *  (d) `confidence` (from provider metadata) is a number in [0,1] for the
+ *      answer types that carry it natively (choice, score).
+ */
+function isValidAnswer(question: Json, answer: unknown, confidence: unknown): boolean {
+  const expected = NATIVE_TO_ANSWER_TYPE[String(question.type)];
+  if (!expected) return false;
+  if (!isRecord(answer) || answer.type !== expected) return false;
+
+  if (expected === "boolean") {
+    // A boolean's single `probability` IS its distribution; noul carries no confidence.
+    return isProbability(answer.probability);
+  }
+
+  if (expected === "choice") {
+    if (!isRecord(question.criteria)) return false;
+    const optionKeys = Object.keys(question.criteria);
+    if (optionKeys.length === 0) return false;
+    if (typeof answer.choice !== "string" || !optionKeys.includes(answer.choice)) return false;
+    if (!isProbabilityDistribution(answer.probabilities)) return false;
+    const probKeys = Object.keys(answer.probabilities);
+    if (probKeys.length !== optionKeys.length || !probKeys.every((k) => optionKeys.includes(k))) {
+      return false;
+    }
+    return isProbability(confidence);
+  }
+
+  // score
+  if (typeof answer.score !== "number" || !Number.isFinite(answer.score)) return false;
+  if (!Array.isArray(question.criteria) || question.criteria.length === 0) return false;
+  if (answer.score < 0 || answer.score > question.criteria.length - 1) return false;
+  if (!isProbabilityDistribution(answer.probabilities)) return false;
+  return isProbability(confidence);
 }
 
 /**
  * A malformed or incomplete upstream success body must NOT translate into a
- * silently-successful native response. Require the answers container plus, for
- * every asked question, an answer of the expected type carrying its required
- * value. The route returns a sanitized 502 when this is false.
+ * silently-successful native response. The invariant, written once: EVERY asked
+ * question must have a well-formed answer (see isValidAnswer) AND the usage must
+ * carry a non-negative integer `inputTokens` — nothing is ever fabricated on the
+ * way out. The route returns a sanitized 502 when this is false.
  */
 export function isValidEvaluationResult(data: unknown, nativeQuestions: unknown): boolean {
   if (!isRecord(data) || !isRecord(data.answers)) return false;
@@ -106,14 +148,21 @@ export function isValidEvaluationResult(data: unknown, nativeQuestions: unknown)
   const answers = data.answers;
   const names = Object.keys(nativeQuestions);
   if (names.length === 0) return false;
+
+  const metadata = isRecord(data.providerMetadata) ? data.providerMetadata : {};
+  const typesafe = isRecord(metadata.typesafe) ? metadata.typesafe : {};
+  const confidences = isRecord(typesafe.confidence) ? typesafe.confidence : {};
+
   for (const name of names) {
     const question = nativeQuestions[name];
     if (!isRecord(question)) return false;
-    const expected = NATIVE_TO_ANSWER_TYPE[String(question.type)];
-    if (!expected) return false;
-    if (!isValidAnswer(expected, answers[name])) return false;
+    if (!isValidAnswer(question, answers[name], confidences[name])) return false;
   }
-  return true;
+
+  const usage = isRecord(data.usage) ? data.usage : undefined;
+  if (!usage) return false;
+  const inputTokens = usage.inputTokens;
+  return typeof inputTokens === "number" && Number.isInteger(inputTokens) && inputTokens >= 0;
 }
 
 /** Translate the v4 evaluation response back to the native System One result. */

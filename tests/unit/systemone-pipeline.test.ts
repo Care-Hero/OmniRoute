@@ -280,3 +280,99 @@ test("a question named __proto__ survives both translation directions", async ()
   );
   assert.equal(answers.normal.type, "noul");
 });
+
+// ─── Native-response validation, clause by clause (SHOULD-FIX round 2) ──────
+// The invariant: every question needs a fully-formed answer (type, primary
+// value + option membership, a [0,1] distribution, and — for choice/score —
+// a [0,1] confidence) plus a non-negative integer usage.inputTokens. Anything
+// else is a sanitized 502; nothing is ever fabricated on the way out.
+
+const CHOICE_Q = {
+  verdict: { type: "choice", instructions: "?", criteria: { yes: "y", no: "n" } },
+};
+const CHOICE_OK = {
+  answers: { verdict: { type: "choice", choice: "yes", probabilities: { yes: 0.8, no: 0.2 } } },
+  usage: { inputTokens: 10, outputTokens: 1 },
+  providerMetadata: { typesafe: { confidence: { verdict: 0.9 } } },
+};
+
+async function postValid(created: { key: string }, questions: unknown, replyBody: unknown) {
+  const captured: Captured[] = [];
+  stubUpstream(captured, { status: 200, body: replyBody });
+  const { routed } = await pipe("http://localhost/v1/systemone", created.key, {
+    model: "jev-latest",
+    state: "s",
+    questions,
+  });
+  return routed;
+}
+
+test("a fully-valid choice result passes with real confidence and usage", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-choice-ok", "machine-s1", []);
+  const routed = await postValid(created, CHOICE_Q, CHOICE_OK);
+  assert.ok(routed);
+  assert.equal(routed!.status, 200);
+  const answer = (await routed!.json()).answers.verdict;
+  assert.equal(answer.confidence, 0.9);
+  assert.deepEqual(answer.probabilities, { yes: 0.8, no: 0.2 });
+});
+
+test("a choice answer missing provider confidence yields a 502", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-noconf", "machine-s1", []);
+  const reply = { answers: CHOICE_OK.answers, usage: CHOICE_OK.usage }; // no providerMetadata
+  const routed = await postValid(created, CHOICE_Q, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 502);
+});
+
+test("a boolean probability above 1 yields a 502", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-prob2", "machine-s1", []);
+  const reply = {
+    answers: { flag: { type: "boolean", probability: 2 } },
+    usage: { inputTokens: 3, outputTokens: 0 },
+  };
+  const routed = await postValid(created, { flag: { type: "noul", instructions: "?" } }, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 502);
+});
+
+test("a choice whose value is not an option key yields a 502", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-badchoice", "machine-s1", []);
+  const reply = {
+    answers: { verdict: { type: "choice", choice: "maybe", probabilities: { yes: 0.8, no: 0.2 } } },
+    usage: { inputTokens: 10, outputTokens: 1 },
+    providerMetadata: { typesafe: { confidence: { verdict: 0.9 } } },
+  };
+  const routed = await postValid(created, CHOICE_Q, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 502);
+});
+
+test("a success body missing usage yields a 502", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-nousage", "machine-s1", []);
+  const reply = { answers: CHOICE_OK.answers, providerMetadata: CHOICE_OK.providerMetadata }; // no usage
+  const routed = await postValid(created, CHOICE_Q, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 502);
+});
+
+test("a score outside the criteria range yields a 502", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-scorerange", "machine-s1", []);
+  const scoreQ = { level: { type: "score", instructions: "?", criteria: ["low", "mid", "high"] } };
+  const reply = {
+    answers: {
+      level: { type: "score", score: 5, probabilities: { "0": 0.2, "1": 0.3, "2": 0.5 } },
+    },
+    usage: { inputTokens: 4, outputTokens: 0 },
+    providerMetadata: { typesafe: { confidence: { level: 0.7 } } },
+  };
+  const routed = await postValid(created, scoreQ, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 502);
+});
