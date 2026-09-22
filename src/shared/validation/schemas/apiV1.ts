@@ -501,6 +501,19 @@ export const v1RerankSchema = z
   })
   .catchall(z.unknown());
 
+// POST /v1/evaluation-model — Vercel AI Gateway v4 evaluation contract (typesafe-ai/jev).
+// `model` may instead arrive as the AI SDK's `ai-model-id` header, so it is optional here.
+export const v1EvaluationModelSchema = z
+  .object({
+    model: modelIdSchema.optional(),
+    state: z.string().min(1, "state is required"),
+    questions: z
+      .record(z.string(), z.unknown())
+      .refine((q) => Object.keys(q).length > 0, "questions must contain at least one entry"),
+    providerOptions: z.record(z.string(), z.unknown()).optional(),
+  })
+  .catchall(z.unknown());
+
 // POST /v1/classify — Jina zero/few-shot classification (api.jina.ai).
 export const v1ClassifySchema = z
   .object({
