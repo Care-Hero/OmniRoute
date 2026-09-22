@@ -20,12 +20,14 @@ import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import * as log from "@/sse/utils/logger";
 import {
   buildUpstreamHeaders,
+  redactSelectedCredential,
   upstreamErrorMessage,
   usageTokens,
   EVALUATION_PROVIDER_ID,
   VERCEL_AI_GATEWAY_EVALUATION_URL,
 } from "../evaluation-model/evaluationModel";
 import {
+  isValidEvaluationResult,
   nativeQuestionsToVercel,
   nativeStateToString,
   parseNativeModel,
@@ -90,7 +92,16 @@ async function postHandler(request: Request) {
   const apiKeyName = policy.apiKeyInfo?.name || undefined;
 
   const provider = EVALUATION_PROVIDER_ID;
-  const credentials = await getProviderCredentialsWithQuotaPreflight(provider);
+  // Honour the key's connection allowlist exactly as chat completions does, so a
+  // restricted key can never draw another account's Vercel credential. An
+  // empty/absent allowlist means unrestricted; a restricted key whose
+  // connections don't match this provider selects nothing.
+  const allowedConnections = policy.apiKeyInfo?.allowedConnections ?? null;
+  const credentials = await getProviderCredentialsWithQuotaPreflight(
+    provider,
+    null,
+    allowedConnections
+  );
   if (!credentials) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
   }
@@ -138,7 +149,14 @@ async function postHandler(request: Request) {
 
     if (!res.ok) {
       const errData: unknown = await res.json().catch(() => ({}));
-      const errorMessage = upstreamErrorMessage(errData, res.status);
+      // Strip the exact injected credential before the upstream free-text
+      // reaches the client, then let errorResponse's shared sanitizer run.
+      const errorMessage = redactSelectedCredential(
+        upstreamErrorMessage(errData, res.status),
+        token
+      );
+      // Metadata-only log: the upstream body and its free-text error can echo
+      // the caller's evaluated state or the credential, so neither is persisted.
       saveCallLog({
         method: "POST",
         path: LOG_PATH,
@@ -148,8 +166,7 @@ async function postHandler(request: Request) {
         connectionId: connectionId || undefined,
         duration: Date.now() - startTime,
         requestBody: loggedRequest,
-        responseBody: errData,
-        error: errorMessage,
+        error: `Provider returned HTTP ${res.status}`,
         apiKeyId,
         apiKeyName,
       }).catch(() => {});
@@ -159,6 +176,28 @@ async function postHandler(request: Request) {
     const data: unknown = await res.json();
     const latencyMs = Date.now() - startTime;
     const tokens = usageTokens(data);
+    // A malformed or incomplete success body must not translate into a
+    // silently-successful native response — return a sanitized 502 instead.
+    if (!isValidEvaluationResult(data, native.questions)) {
+      saveCallLog({
+        method: "POST",
+        path: LOG_PATH,
+        status: HTTP_STATUS.BAD_GATEWAY,
+        model,
+        provider,
+        connectionId: connectionId || undefined,
+        duration: latencyMs,
+        tokens,
+        requestBody: loggedRequest,
+        error: "Upstream returned a malformed evaluation result",
+        apiKeyId,
+        apiKeyName,
+      }).catch(() => {});
+      return errorResponse(
+        HTTP_STATUS.BAD_GATEWAY,
+        "Upstream returned a malformed evaluation result"
+      );
+    }
     let costUsd = 0;
     try {
       costUsd = await calculateCost(provider, upstreamModel, tokens);
@@ -167,6 +206,8 @@ async function postHandler(request: Request) {
     }
     await clearRecoveredProviderState(credentials);
     const result = vercelResultToNative(data, native.questions as Record<string, unknown>, echo);
+    // Metadata-only log: token usage and status are captured above; the
+    // translated answer body (which can echo the evaluated state) is not stored.
     saveCallLog({
       method: "POST",
       path: LOG_PATH,
@@ -177,7 +218,6 @@ async function postHandler(request: Request) {
       duration: latencyMs,
       tokens,
       requestBody: loggedRequest,
-      responseBody: result,
       apiKeyId,
       apiKeyName,
     }).catch(() => {});
@@ -196,8 +236,9 @@ async function postHandler(request: Request) {
       requestId,
     });
     return new Response(JSON.stringify(result), { status: 200, headers });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch {
+    // Network or parse failure: the raw error can carry the request URL or the
+    // credential, so it is neither returned to the client nor logged verbatim.
     saveCallLog({
       method: "POST",
       path: LOG_PATH,
@@ -207,11 +248,11 @@ async function postHandler(request: Request) {
       connectionId: connectionId || undefined,
       duration: Date.now() - startTime,
       requestBody: loggedRequest,
-      error: message,
+      error: "Upstream System One request failed",
       apiKeyId,
       apiKeyName,
     }).catch(() => {});
-    return errorResponse(HTTP_STATUS.BAD_GATEWAY, `System One request failed: ${message}`);
+    return errorResponse(HTTP_STATUS.BAD_GATEWAY, "System One request failed");
   }
 }
 

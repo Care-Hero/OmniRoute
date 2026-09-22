@@ -24,6 +24,7 @@ import {
   buildUpstreamBody,
   buildUpstreamHeaders,
   parseEvaluationModel,
+  redactSelectedCredential,
   requestedEvaluationModel,
   upstreamErrorMessage,
   usageTokens,
@@ -85,7 +86,17 @@ async function postHandler(request: Request) {
   const apiKeyId = policy.apiKeyInfo?.id || undefined;
   const apiKeyName = policy.apiKeyInfo?.name || undefined;
 
-  const credentials = await getProviderCredentialsWithQuotaPreflight(provider);
+  // Honour the key's connection allowlist exactly as chat completions does: pass
+  // it into credential selection so a restricted key can never draw another
+  // account's Vercel credential. An empty/absent allowlist means unrestricted
+  // (getProviderCredentials only filters when the list is non-empty); a
+  // restricted key whose connections don't match this provider selects nothing.
+  const allowedConnections = policy.apiKeyInfo?.allowedConnections ?? null;
+  const credentials = await getProviderCredentialsWithQuotaPreflight(
+    provider,
+    null,
+    allowedConnections
+  );
   if (!credentials) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
   }
@@ -135,7 +146,14 @@ async function postHandler(request: Request) {
 
     if (!res.ok) {
       const errData: unknown = await res.json().catch(() => ({}));
-      const errorMessage = upstreamErrorMessage(errData, res.status);
+      // Strip the exact injected credential before the upstream free-text
+      // reaches the client, then let errorResponse's shared sanitizer run.
+      const errorMessage = redactSelectedCredential(
+        upstreamErrorMessage(errData, res.status),
+        token
+      );
+      // Metadata-only log: never persist the upstream body or its free-text
+      // error — either can echo the caller's evaluated state or the credential.
       saveCallLog({
         method: "POST",
         path: LOG_PATH,
@@ -145,8 +163,7 @@ async function postHandler(request: Request) {
         connectionId: connectionId || undefined,
         duration: Date.now() - startTime,
         requestBody: loggedRequest,
-        responseBody: errData,
-        error: errorMessage,
+        error: `Provider returned HTTP ${res.status}`,
         apiKeyId,
         apiKeyName,
       }).catch(() => {});
@@ -163,6 +180,8 @@ async function postHandler(request: Request) {
       costUsd = 0;
     }
     await clearRecoveredProviderState(credentials);
+    // Metadata-only log: token usage and status are captured above; the answer
+    // body (which can echo the evaluated state) is never persisted.
     saveCallLog({
       method: "POST",
       path: LOG_PATH,
@@ -173,7 +192,6 @@ async function postHandler(request: Request) {
       duration: latencyMs,
       tokens,
       requestBody: loggedRequest,
-      responseBody: data,
       apiKeyId,
       apiKeyName,
     }).catch(() => {});
@@ -187,8 +205,9 @@ async function postHandler(request: Request) {
       requestId: generateRequestId(),
     });
     return new Response(JSON.stringify(data), { status: 200, headers });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch {
+    // Network or parse failure: the raw error can carry the request URL or the
+    // credential, so it is neither returned to the client nor logged verbatim.
     saveCallLog({
       method: "POST",
       path: LOG_PATH,
@@ -198,11 +217,11 @@ async function postHandler(request: Request) {
       connectionId: connectionId || undefined,
       duration: Date.now() - startTime,
       requestBody: loggedRequest,
-      error: message,
+      error: "Upstream evaluation request failed",
       apiKeyId,
       apiKeyName,
     }).catch(() => {});
-    return errorResponse(HTTP_STATUS.BAD_GATEWAY, `Evaluation request failed: ${message}`);
+    return errorResponse(HTTP_STATUS.BAD_GATEWAY, "Evaluation request failed");
   }
 }
 

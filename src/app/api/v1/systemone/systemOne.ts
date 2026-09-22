@@ -45,7 +45,9 @@ export function nativeStateToString(state: unknown): string | null {
 /** Translate native questions to the v4 evaluation shape. Returns null when a question is malformed. */
 export function nativeQuestionsToVercel(questions: unknown): Record<string, Json> | null {
   if (!questions || typeof questions !== "object" || Array.isArray(questions)) return null;
-  const out: Record<string, Json> = {};
+  // Null-prototype so a JSON-parsed question literally named `__proto__` becomes
+  // an own key instead of mutating the prototype and vanishing from the map.
+  const out: Record<string, Json> = Object.create(null);
   for (const [name, raw] of Object.entries(questions as Json)) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const q = raw as Json;
@@ -76,6 +78,44 @@ function topProbability(probabilities: unknown): number | undefined {
   return values.length ? Math.max(...values) : undefined;
 }
 
+/** The v4 answer type a given native question type must come back as. */
+const NATIVE_TO_ANSWER_TYPE: Record<string, string> = {
+  noul: "boolean",
+  choice: "choice",
+  score: "score",
+};
+
+/** Is one upstream answer well-formed for its question type (known type + required value)? */
+function isValidAnswer(expectedAnswerType: string, answer: unknown): boolean {
+  if (!isRecord(answer) || answer.type !== expectedAnswerType) return false;
+  if (expectedAnswerType === "boolean") return typeof answer.probability === "number";
+  if (expectedAnswerType === "choice") return typeof answer.choice === "string";
+  if (expectedAnswerType === "score") return typeof answer.score === "number";
+  return false;
+}
+
+/**
+ * A malformed or incomplete upstream success body must NOT translate into a
+ * silently-successful native response. Require the answers container plus, for
+ * every asked question, an answer of the expected type carrying its required
+ * value. The route returns a sanitized 502 when this is false.
+ */
+export function isValidEvaluationResult(data: unknown, nativeQuestions: unknown): boolean {
+  if (!isRecord(data) || !isRecord(data.answers)) return false;
+  if (!isRecord(nativeQuestions)) return false;
+  const answers = data.answers;
+  const names = Object.keys(nativeQuestions);
+  if (names.length === 0) return false;
+  for (const name of names) {
+    const question = nativeQuestions[name];
+    if (!isRecord(question)) return false;
+    const expected = NATIVE_TO_ANSWER_TYPE[String(question.type)];
+    if (!expected) return false;
+    if (!isValidAnswer(expected, answers[name])) return false;
+  }
+  return true;
+}
+
 /** Translate the v4 evaluation response back to the native System One result. */
 export function vercelResultToNative(
   data: unknown,
@@ -87,7 +127,8 @@ export function vercelResultToNative(
   const metadata = isRecord(root.providerMetadata) ? root.providerMetadata : {};
   const typesafe = isRecord(metadata.typesafe) ? metadata.typesafe : {};
   const confidences = isRecord(typesafe.confidence) ? typesafe.confidence : {};
-  const out: Json = {};
+  // Null-prototype so an answer keyed `__proto__` survives the round trip.
+  const out: Json = Object.create(null);
   for (const [name, raw] of Object.entries(answers)) {
     if (!isRecord(raw)) continue;
     const question = isRecord(nativeQuestions[name]) ? (nativeQuestions[name] as Json) : {};

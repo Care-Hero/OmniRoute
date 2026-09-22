@@ -106,6 +106,18 @@ export function usageTokens(data: unknown): { prompt_tokens: number; completion_
   return { prompt_tokens: read("inputTokens"), completion_tokens: read("outputTokens") };
 }
 
+/**
+ * Remove the exact selected upstream credential from any free-text before it is
+ * returned to the client or logged. The shared error sanitizer does not
+ * recognise an unlabeled `vck_…` gateway key, so we strip the exact secret we
+ * injected — the value is known at call time, which is stronger than pattern
+ * matching. Runs before `upstreamErrorMessage` / `errorResponse`.
+ */
+export function redactSelectedCredential(text: string, token: string): string {
+  if (!token) return text;
+  return text.split(token).join("[redacted-credential]");
+}
+
 /** Upstream error bodies are `{ error: { message } }` (gateway) or `{ message }`. */
 export function upstreamErrorMessage(errData: unknown, status: number): string {
   if (errData && typeof errData === "object") {
