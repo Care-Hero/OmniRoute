@@ -64,6 +64,12 @@ const ROUTE_LIMITS: BodySizeRule[] = [
   { prefix: "/api/db-backups/import", limit: MAX_BODY_BYTES_IMPORT },
   { prefix: "/api/v1/chat/completions", limit: MAX_BODY_BYTES_LLM_API },
   { prefix: "/api/v1/responses", limit: MAX_BODY_BYTES_LLM_API },
+  // Anthropic Messages (Claude Code / the Agent SDK POST `/v1/messages`, which
+  // normalises here) carries the same image-heavy agent contexts as the OpenAI
+  // routes: a subagent fan-out reading photos hit the 10 MB default with 413
+  // "Request body too large" (Care-Hero prod 2026-09-21) while chat/completions
+  // was allowed 50 MB. `count_tokens` rides the prefix.
+  { prefix: "/api/v1/messages", limit: MAX_BODY_BYTES_LLM_API },
   { prefix: "/api/v1/images", limit: MAX_BODY_BYTES_MEDIA },
   { prefix: "/api/v1/videos", limit: MAX_BODY_BYTES_MEDIA },
   { prefix: "/api/v1/audio/transcriptions", limit: MAX_BODY_BYTES_AUDIO },
