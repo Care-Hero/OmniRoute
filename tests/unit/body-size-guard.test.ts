@@ -275,3 +275,14 @@ test("image edit body reader does not enforce an OmniRoute media limit", async (
   );
   assert.deepEqual(body, new Uint8Array([1, 2, 3, 4]));
 });
+
+test("Anthropic Messages gets the LLM API limit like chat/completions and responses", () => {
+  assert.equal(getBodySizeLimit("/api/v1/messages"), getBodySizeLimit("/api/v1/chat/completions"));
+  // count_tokens has no admission budget — it keeps the default, not the 50 MB.
+  assert.equal(getBodySizeLimit("/api/v1/messages/count_tokens"), getBodySizeLimit("/api/v1/models"));
+  assert.equal(
+    getBodySizeLimit("/api/v1/messages", { maxBodySizeMb: 100 }),
+    requestBodyLimitMbToBytes(100)
+  );
+  assert.ok(getBodySizeLimit("/api/v1/messages") > getBodySizeLimit("/api/v1/models"));
+});
