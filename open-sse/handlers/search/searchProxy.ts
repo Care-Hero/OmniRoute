@@ -268,9 +268,13 @@ export async function executeProviderFetch(
     clearTimeout(timer);
     const error = err instanceof Error ? err : new Error(String(err));
     // Envelope-level provider failure surfaced by a normalizer (e.g. AnySearch
-    // `{ code: -1 }`): not a transport fault. Quota signals map to 402 so
-    // quota-aware failover treats them as exhausted; anything else is 502.
-    if (error.name === "AnysearchSearchEnvelopeError") {
+    // `{ code: -1 }`, Valyu `{ success: false }` on a 2xx): not a transport
+    // fault. Quota signals map to 402 so quota-aware failover treats them as
+    // exhausted; anything else is 502.
+    if (
+      error.name === "AnysearchSearchEnvelopeError" ||
+      error.name === "ValyuSearchEnvelopeError"
+    ) {
       const quota = (error as { quota?: boolean }).quota === true;
       const status = quota ? 402 : 502;
       const safeMsg = sanitizeErrorMessage(error.message) || "provider envelope error";

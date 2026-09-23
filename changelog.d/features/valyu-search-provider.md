@@ -1,0 +1,1 @@
+- **feat(search):** Add Valyu (`valyu-search`, alias `valyu`) as a `/v1/search` provider — web and news search, plus academic/finance/proprietary datasets via `provider_options.included_sources`, with credential validation and dashboard key entry

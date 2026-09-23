@@ -1,16 +1,16 @@
 ---
 title: "Provider Reference"
 version: 3.8.51
-lastUpdated: 2026-09-03
+lastUpdated: 2026-09-23
 ---
 
 # Provider Reference
 
 > **Auto-generated** from `src/shared/constants/providers.ts` — do not edit by hand.
 > Regenerate with: `npm run gen:provider-reference`
-> **Last generated:** 2026-09-03
+> **Last generated:** 2026-09-23
 
-Total providers: **356**. See category breakdown below.
+Total providers: **357**. See category breakdown below.
 
 ## Categories
 
@@ -380,7 +380,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `vllm` | `vllm` | vLLM | Local, self-hosted | [link](https://github.com/vllm-project/vllm) | API key optional. Configure the local vLLM OpenAI-compatible base URL (default: http://localhost:8000/v1). |
 | `xinference` | `xinference` | XInference | Local, self-hosted | [link](https://inference.readthedocs.io) | API key optional. Configure the local XInference OpenAI-compatible base URL (default: http://localhost:9997/v1). |
 
-## Search Providers (17)
+## Search Providers (18)
 
 | ID | Alias | Name | Tags | Website | Notes |
 |----|-------|------|------|---------|-------|
@@ -398,6 +398,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `searxng-search` | `searxng` | SearXNG Search | Search | [link](https://docs.searxng.org) | API key is optional. Set your SearXNG base URL. Some instances may require a bearer token for access. |
 | `serper-search` | `serper-search` | Serper Search | Search | [link](https://serper.dev) | API key from serper.dev dashboard |
 | `tavily-search` | `tavily-search` | Tavily Search | Search | [link](https://tavily.com) | API key from app.tavily.com (format: tvly-...) |
+| `valyu-search` | `valyu` | Valyu Search | Search | [link](https://valyu.ai) | API key from platform.valyu.ai (x-api-key); signup includes one-time free credits |
 | `x-search` | `x_search` | X Search (Grok) | Search | [link](https://docs.x.ai/developers/tools/x-search) | SuperGrok OAuth (xai-oauth) or xAI API key. This is Grok X Search, not the X Developer MCP. |
 | `xquik-search` | `xquik` | Xquik X Search | Search | [link](https://docs.xquik.com) | Xquik API key (xq_...). Search is metered per returned post; the catalog estimate uses 5 results. |
 | `youcom-search` | `youcom-search` | You.com Search | Search | [link](https://you.com/business/api/) | X-API-Key from the You.com platform dashboard |

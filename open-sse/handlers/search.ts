@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
  *   duckduckgo-free, x-search (Grok / SuperGrok X Search — explicit or search_type "x")
  *   and xquik-search (direct X API search — explicit or credentialed fallback)
  *   and anysearch-search (free public web search — fallback-only)
+ *   and valyu-search (web/news + academic/finance datasets via provider_options)
  *
  * Request format:
  * {
@@ -36,6 +37,7 @@ import { buildJinaSearchRequest, extractJinaSearchItems } from "./search/jinaSea
 import * as xSearch from "./search/xSearch.ts";
 import * as xquikSearch from "./search/xquikSearch.ts";
 import * as anysearchSearch from "./search/anysearchSearch.ts";
+import * as valyuSearch from "./search/valyuSearch.ts";
 import { freeWebSearch } from "../services/freeWebSearch.ts";
 import { saveCallLog } from "@/lib/usageDb";
 import { safeOutboundFetch } from "@/shared/network/safeOutboundFetch";
@@ -737,6 +739,7 @@ const requestBuilders: Record<string, SearchRequestBuilder> = {
   "x-search": xSearch.buildXSearchRequest,
   "xquik-search": xquikSearch.buildXquikSearchRequest,
   "anysearch-search": anysearchSearch.buildAnysearchSearchRequest,
+  "valyu-search": valyuSearch.buildValyuSearchRequest,
 };
 
 function buildRequest(
@@ -1357,6 +1360,7 @@ const responseNormalizers: Record<string, SearchResponseNormalizer> = {
   "x-search": normalizeXSearchResponse,
   "xquik-search": (data) => xquikSearch.normalizeXquikSearchResponse(data, makeResult),
   "anysearch-search": (data) => anysearchSearch.normalizeAnysearchSearchResponse(data, makeResult),
+  "valyu-search": (data) => valyuSearch.normalizeValyuSearchResponse(data, makeResult),
 };
 
 function normalizeResponse(

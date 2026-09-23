@@ -406,6 +406,26 @@ export const SEARCH_PROVIDERS: Record<string, SearchProviderConfig> = {
     cacheTTLMs: 5 * 60 * 1000,
     fallbackOnly: true,
   },
+
+  // Valyu (https://valyu.ai): web + news search, plus academic/finance/other
+  // proprietary datasets through provider_options.included_sources. Priced per
+  // result retrieved ($1.50 / 1k web results), so costPerQuery reflects the
+  // default 5 results. Signup credits are one-time, not a monthly quota.
+  "valyu-search": {
+    id: "valyu-search",
+    name: "Valyu Search",
+    baseUrl: "https://api.valyu.ai/v1/search",
+    method: "POST",
+    authType: "apikey",
+    authHeader: "x-api-key",
+    costPerQuery: 0.0075,
+    freeMonthlyQuota: 0,
+    searchTypes: ["web", "news"],
+    defaultMaxResults: 5,
+    maxMaxResults: 20,
+    timeoutMs: 15_000,
+    cacheTTLMs: 5 * 60 * 1000,
+  },
 };
 
 /**
@@ -457,6 +477,7 @@ export const SEARCH_PROVIDER_ALIASES: Record<string, string> = {
   xquik_search: "xquik-search",
   anysearch: "anysearch-search",
   anysearch_search: "anysearch-search",
+  valyu: "valyu-search",
 };
 
 export function resolveSearchProviderId(providerId: string): string {

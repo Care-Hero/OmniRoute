@@ -1390,7 +1390,9 @@ paths:
         to `xquik-search` to use Xquik for X search. The aliases `xquik` and
         `xquik_search` resolve to the same provider.
         AnySearch (`anysearch-search`, aliases `anysearch` / `anysearch_search`)
-        provides free fallback-only web search.
+        provides free fallback-only web search. Valyu (`valyu-search`, alias
+        `valyu`) searches the web and news, and academic/finance datasets via
+        `provider_options.included_sources`.
       security:
         - BearerAuth: []
       requestBody:

@@ -5,7 +5,7 @@ import { z } from "zod";
 export const SearchProviderCatalogItemSchema = z.object({
   id: z.string(),
   name: z.string(),
-  /** "search" para os 20 search providers; "fetch" para firecrawl/jina-reader/tavily-search/tinyfish/nimble-search/anysearch-search. */
+  /** "search" para os 21 search providers; "fetch" para firecrawl/jina-reader/tavily-search/tinyfish/nimble-search/anysearch-search. */
   kind: z.enum(["search", "fetch"]),
   costPerQuery: z.number().nonnegative(),
   freeMonthlyQuota: z.number().int().nonnegative(),

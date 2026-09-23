@@ -73,6 +73,14 @@ export const SEARCH_VALIDATOR_CONFIGS: Record<
       body: JSON.stringify({ query: "test", numResults: 1 }),
     },
   }),
+  "valyu-search": (apiKey) => ({
+    url: "https://api.valyu.ai/v1/search",
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+      body: JSON.stringify({ query: "test", search_type: "web", max_num_results: 1 }),
+    },
+  }),
   "anysearch-search": (apiKey) => ({
     url: "https://api.anysearch.com/v1/search",
     init: {

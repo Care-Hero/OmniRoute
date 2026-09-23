@@ -62,6 +62,18 @@ export const SEARCH_PROVIDERS = {
     authHint: "API key from app.tavily.com (format: tvly-...)",
     serviceKinds: ["webSearch", "webFetch"],
   },
+  "valyu-search": {
+    id: "valyu-search",
+    alias: "valyu",
+    name: "Valyu Search",
+    icon: "school",
+    color: "#111827",
+    textIcon: "VA",
+    website: "https://valyu.ai",
+    hasFree: true,
+    authHint: "API key from platform.valyu.ai (x-api-key); signup includes one-time free credits",
+    serviceKinds: ["webSearch"],
+  },
   "anysearch-search": {
     id: "anysearch-search",
     alias: "anysearch",
