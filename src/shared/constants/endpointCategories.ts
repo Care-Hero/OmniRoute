@@ -108,6 +108,20 @@ export const ENDPOINT_CATEGORIES: readonly EndpointCategory[] = [
     description: "Agent-to-agent protocol and task execution",
     prefixes: ["/v1/agents"],
   },
+  {
+    id: "evaluation",
+    label: "Evaluation Models",
+    description:
+      "Structured evaluation models (Vercel AI Gateway v4) and the TypeSafe System One contract",
+    // Both the external `/v1/*` spelling and the internal app-router `/api/v1/*`
+    // path resolve here, so an endpoint-restricted key is enforced on either.
+    prefixes: [
+      "/v1/evaluation-model",
+      "/v1/systemone",
+      "/api/v1/evaluation-model",
+      "/api/v1/systemone",
+    ],
+  },
 ] as const;
 
 /**

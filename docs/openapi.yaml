@@ -148,6 +148,8 @@ tags:
     description: Docs endpoints (generated route coverage)
   - name: Evals
     description: Evals endpoints (generated route coverage)
+  - name: Evaluation model
+    description: Structured evaluation models (Vercel AI Gateway v4 contract)
   - name: Files
     description: Files endpoints (generated route coverage)
   - name: Free models
@@ -220,6 +222,8 @@ tags:
     description: Sync endpoints (generated route coverage)
   - name: Synced available models
     description: Synced available models endpoints (generated route coverage)
+  - name: Systemone
+    description: TypeSafe System One native evaluation contract
   - name: Tools
     description: Tools endpoints (generated route coverage)
   - name: Tunnels
@@ -2022,6 +2026,95 @@ paths:
             Moderation result. Success responses carry the `X-OmniRoute-*`
             cost-telemetry headers (see `POST /api/v1/chat/completions`);
             moderations are always cost `0` (free).
+
+  /api/v1/evaluation-model:
+    post:
+      tags: [Evaluation model]
+      summary: Vercel AI Gateway v4 evaluation-model passthrough
+      description: >-
+        Runs a Vercel AI Gateway evaluation model (for example
+        `vag/typesafe-ai/jev`) through the AI SDK v4 evaluation contract using
+        the stored `vercel-ai-gateway` credential; the gateway's answer body is
+        returned unchanged. The model may instead be supplied via the
+        `ai-model-id` request header. Only `vag/…` / `vercel-ai-gateway/…`
+        models are accepted; the evaluated `state` is never written to call logs.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state, questions]
+              properties:
+                model:
+                  type: string
+                  description: >-
+                    `vag/<model>` or `vercel-ai-gateway/<model>`; optional when
+                    the `ai-model-id` header is set.
+                state:
+                  type: string
+                questions:
+                  type: object
+                  additionalProperties: true
+                providerOptions:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: >-
+            The gateway evaluation body (`answers`, `usage`, `warnings`,
+            `providerMetadata`) unchanged, plus the `X-OmniRoute-*` cost
+            telemetry headers.
+        "400":
+          description: Invalid model, missing body fields, or no gateway credential.
+        "403":
+          description: The API key is not permitted for this endpoint or connection.
+        "502":
+          description: The upstream evaluation request failed.
+
+  /api/v1/systemone:
+    post:
+      tags: [Systemone]
+      summary: TypeSafe System One native evaluation contract
+      description: >-
+        The same Jev evaluation model exposed in TypeSafe's native System One
+        shape for `@typesafe-ai/sdk` clients (jev-axi, jevkit). Requests are
+        translated to the Vercel AI Gateway v4 contract and the reply is
+        translated back; point the client at OmniRoute and use any OmniRoute API
+        key. The evaluated `state` is never written to call logs.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state, questions]
+              properties:
+                model:
+                  type: string
+                  description: "`jev-latest` (default) or a `jev-<version>` alias."
+                state:
+                  description: Free text or any JSON value (serialised for the gateway).
+                questions:
+                  type: object
+                  additionalProperties: true
+                  description: A non-empty map of `noul` / `choice` / `score` questions.
+      responses:
+        "200":
+          description: >-
+            Native result `{ model, answers, usage: { input_tokens,
+            output_tokens } }` with `confidence` on choice and score answers,
+            plus the `x-typesafe-request-id` and `X-OmniRoute-*` headers.
+        "400":
+          description: Unsupported model, or missing/malformed state or questions.
+        "403":
+          description: The API key is not permitted for this endpoint or connection.
+        "502":
+          description: The upstream request failed or returned a malformed result.
 
   /api/v1/rerank:
     post:

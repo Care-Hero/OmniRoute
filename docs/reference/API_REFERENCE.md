@@ -213,6 +213,46 @@ where `<source>` is one of `request-header`, `routing-override`, `active-profile
 
 ---
 
+## Evaluation models (Vercel AI Gateway)
+
+```bash
+POST /v1/evaluation-model
+Authorization: Bearer your-api-key
+Content-Type: application/json
+
+{
+  "model": "vag/typesafe-ai/jev",
+  "state": "Customer: I was charged twice. Please refund the duplicate charge today.",
+  "questions": {
+    "category": { "type": "choice", "instructions": "Main subject?", "criteria": { "billing": "Charges or refunds", "other": null } },
+    "urgency": { "type": "score", "instructions": "How time-sensitive?", "criteria": ["No deadline", "Soon", "Immediate"] },
+    "requestsRefund": { "type": "boolean", "instructions": "Is a refund explicitly requested?" }
+  }
+}
+```
+
+Vercel AI Gateway evaluation models (`typesafe-ai/jev`) are not language models: the gateway
+refuses them on `/v1/chat/completions`. This route speaks the AI SDK v4 evaluation contract
+(`ai-model-id` + `ai-evaluation-model-specification-version: 4` headers, `{ state, questions,
+providerOptions? }` body) against `https://ai-gateway.vercel.sh/v4/ai/evaluation-model` using the
+dashboard `vercel-ai-gateway` credential, and returns the gateway's `{ answers, usage, warnings,
+providerMetadata }` body unchanged. `model` may also arrive as the `ai-model-id` header
+(`createGateway({ baseURL: "<omniroute>/v1" }).evaluationModel("vag/typesafe-ai/jev")`). Only
+`vag/…` / `vercel-ai-gateway/…` models are accepted; the evaluated `state` is never written to call logs.
+
+### TypeSafe native contract: `POST /v1/systemone`
+
+The same Jev model through TypeSafe's own System One shape, for `@typesafe-ai/sdk` clients
+(jev-axi, jevkit, the Python SDK): body `{ "model": "jev-latest", "state": <text or JSON>, "questions": {...} }`
+with `noul` (yes/no probability), `choice` and `score` questions; response `{ "model", "answers", "usage": { "input_tokens", "output_tokens" } }`
+with `confidence` on choice and score answers. Point the client at OmniRoute and use any OmniRoute API key:
+
+```bash
+export TYPESAFE_BASE_URL=https://your-omniroute
+export TYPESAFE_API_KEY=your-api-key
+jev-axi check "The customer explicitly asks for a refund" --state chat.txt
+```
+
 ## Embeddings
 
 ```bash
