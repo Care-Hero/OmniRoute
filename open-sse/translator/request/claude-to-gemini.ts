@@ -1,9 +1,6 @@
 import { register } from "../registry.ts";
 import { FORMATS } from "../formats.ts";
-import {
-  DEFAULT_SAFETY_SETTINGS,
-  cleanJSONSchemaForAntigravity,
-} from "../helpers/geminiHelper.ts";
+import { DEFAULT_SAFETY_SETTINGS, cleanJSONSchemaForAntigravity } from "../helpers/geminiHelper.ts";
 import { buildGeminiTools, sanitizeGeminiToolName } from "../helpers/geminiToolsSanitizer.ts";
 import {
   buildGeminiThoughtSignatureKey,
@@ -17,6 +14,34 @@ import {
   mergeConsecutiveSameRoleContents,
   type GeminiContent,
 } from "./openai-to-gemini/helpers.ts";
+
+/**
+ * Claude `document` block → Gemini parts. base64 sources become inlineData (Gemini
+ * reads PDFs natively); `text` and `content` sources become text parts. Sources
+ * Gemini cannot take inline (url, file ids) yield no parts, as before.
+ */
+function claudeDocumentToGeminiParts(block): Array<Record<string, unknown>> {
+  const source = block?.source;
+  if (!source || typeof source !== "object") return [];
+  if (source.type === "base64" && typeof source.data === "string" && source.data) {
+    return [
+      { inlineData: { mimeType: source.media_type || "application/pdf", data: source.data } },
+    ];
+  }
+  if (source.type === "text" && typeof source.data === "string" && source.data) {
+    const title = typeof block.title === "string" && block.title ? `${block.title}\n` : "";
+    return [{ text: `${title}${source.data}` }];
+  }
+  if (source.type === "content") {
+    if (typeof source.content === "string") return source.content ? [{ text: source.content }] : [];
+    if (Array.isArray(source.content)) {
+      return source.content
+        .filter((c) => c?.type === "text" && typeof c.text === "string" && c.text)
+        .map((c) => ({ text: c.text }));
+    }
+  }
+  return [];
+}
 
 /**
  * Direct Claude → Gemini request translator.
@@ -217,6 +242,14 @@ export function claudeToGeminiRequest(model, body, stream, credentials = null) {
                   },
                 });
               }
+              break;
+
+            case "document":
+              // A document block (PDF / plain-text attachment) used to fall through
+              // unhandled; a trailing user message carrying only documents then
+              // vanished and `contents` ended on the model turn, which Vertex
+              // rejects with 400 "Requests ending with a model turn are not supported".
+              parts.push(...claudeDocumentToGeminiParts(block));
               break;
           }
         }
