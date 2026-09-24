@@ -373,6 +373,46 @@ test("choice probabilities that do not sum to 1 yield a 502", async () => {
   assert.equal(routed!.status, 502);
 });
 
+// Jev rounds each probability to 2 decimals; many options can then sum to 0.99.
+function roundedChoice(n: number, sum: number) {
+  const keys = Array.from({ length: n }, (_, i) => `f${i}`);
+  const probabilities = Object.fromEntries(keys.map((k) => [k, 0]));
+  probabilities.f0 = Math.round((sum - 0.01 * (n - 1)) * 100) / 100;
+  for (const k of keys.slice(1)) probabilities[k] = 0.01;
+  return {
+    questions: {
+      file: { type: "choice", instructions: "?", criteria: Object.fromEntries(keys.map((k) => [k, k])) },
+    },
+    reply: {
+      answers: { file: { type: "choice", choice: "f0", probabilities } },
+      usage: { inputTokens: 900, outputTokens: 0 },
+      providerMetadata: { typesafe: { confidence: { file: 0.2 } } },
+    },
+  };
+}
+
+test("an 80-option choice whose rounded probabilities sum to 0.99 passes through unchanged", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-rounded", "machine-s1", []);
+  const { questions, reply } = roundedChoice(80, 0.99);
+  const routed = await postValid(created, questions, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 200);
+  const answer = (await routed!.json()).answers.file;
+  assert.equal(answer.choice, "f0");
+  assert.deepEqual(answer.probabilities, reply.answers.file.probabilities);
+});
+
+test("drift beyond what rounding N values can explain still yields a 502", async () => {
+  await seedVercelConnection();
+  const created = await apiKeysDb.createApiKey("s1-drift", "machine-s1", []);
+  // 3 options may drift at most 0.001 + 3 × 0.005 = 0.016; 0.95 is out.
+  const { questions, reply } = roundedChoice(3, 0.95);
+  const routed = await postValid(created, questions, reply);
+  assert.ok(routed);
+  assert.equal(routed!.status, 502);
+});
+
 test("score probabilities keyed off the legend yield a 502", async () => {
   await seedVercelConnection();
   const created = await apiKeysDb.createApiKey("s1-scorekeys", "machine-s1", []);
