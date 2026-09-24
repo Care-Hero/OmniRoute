@@ -90,11 +90,16 @@ function isProbability(v: unknown): v is number {
 }
 
 const DISTRIBUTION_TOLERANCE = 1e-3;
+/**
+ * Jev reports each probability rounded to 2 decimals, so N rounded values can
+ * sum to 1 ± N·0.005 (seen live: an 80-option choice summing to 0.99).
+ */
+const PROBABILITY_ROUNDING = 0.005;
 
 /**
  * A distribution over EXACTLY the expected keys: every value a probability in
  * [0,1], the key set equal to `keys` (no missing, no extra), and the values
- * summing to 1 within floating-point tolerance.
+ * summing to 1 within the drift that per-value rounding can produce.
  */
 function isDistributionOver(v: unknown, keys: string[]): v is Json {
   if (!isRecord(v) || keys.length === 0) return false;
@@ -103,7 +108,7 @@ function isDistributionOver(v: unknown, keys: string[]): v is Json {
   const values = Object.values(v);
   if (!values.every(isProbability)) return false;
   const sum = (values as number[]).reduce((a, b) => a + b, 0);
-  return Math.abs(sum - 1) <= DISTRIBUTION_TOLERANCE;
+  return Math.abs(sum - 1) <= DISTRIBUTION_TOLERANCE + PROBABILITY_ROUNDING * values.length;
 }
 
 /**
